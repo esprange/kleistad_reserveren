@@ -22,7 +22,7 @@ defined('ABSPATH') or die("No script kiddies please!");
 
 define('KLEISTAD_VERSION', 2);
 define('KLEISTAD_URL', 'kleistad_reserveren/v1');
-define('KLEISTAD_EMAIL', 'info@casusopmaat.nl'); // NOG AANPASSEN !!!
+define('KLEISTAD_EMAIL', get_option( 'admin_email' )); 
 define('KLEISTAD_OVERRIDE', 'override_reservering');
 
 class Kleistad {
