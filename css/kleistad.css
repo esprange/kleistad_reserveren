@@ -44,6 +44,10 @@ table.kleistad_form option, select, input {
 table.kleistad_form input[type=number] {
     width: 5em;
 }
+table.kleistad_form input[type=submit] {
+    font-size: small;
+    height: 2.5em;
+}
 table.kleistad_reserveringen {
     width: 100%;
     table-layout: auto;
@@ -95,6 +99,12 @@ table.kleistad_rapport th {
 }
 table.kleistad_rapport td {
     font-size: small;
+}
+table.kleistad_rapport thead {
+    background-color: #F2F2F2;
+}
+table.kleistad_rapport tr:nth-child(even) {
+    background-color: #F2F2F2;
 }
 
 @media screen and (max-width: 700px) {

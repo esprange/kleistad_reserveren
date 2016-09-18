@@ -9,6 +9,7 @@
     'use strict';
 
     $(document).ready(function () {
+        
         $('.kleistad_reserveringen').each(function () {
             var oven = $(this).data('oven');
             var maand = $(this).data('maand');
@@ -28,9 +29,9 @@
         });
 
         $("body").on("change", '.kleistad_gebruiker', function () {
-            var oven = $(this).data('oven');
-            $('#kleistad_stoker' + oven).html( $('#kleistad_gebruiker_id' + oven + ' option:selected').html() );
-            $('#kleistad_1e_stoker' + oven).val( $('#kleistad_gebruiker_id' + oven).val());
+            var id = $(this).data('oven');
+            $('#kleistad_stoker' + id).html( $('#kleistad_gebruiker_id' + id + ' option:selected').html() );
+            $('#kleistad_1e_stoker' + id).val( $('#kleistad_gebruiker_id' + id).val());
         });
 
         $("body").on("click", '.kleistad_box', function () {
@@ -57,6 +58,8 @@
         $('#kleistad_gebruiker_id' + id).val(form_data.gebruiker_id);
         $('#kleistad_programma' + id).val(form_data.programma);
         $('#kleistad_opmerking' + id).val(form_data.opmerking);
+        $('#kleistad_stoker' + id).html( $('#kleistad_gebruiker_id' + id + ' option:selected').html() );
+        $('#kleistad_1e_stoker' + id).val( $('#kleistad_gebruiker_id' + id).val());
 
         var stoker_ids = $('[name=kleistad_stoker_id' + id + ']').toArray();
         var stoker_percs = $('[name=kleistad_stoker_perc' + id + ']').toArray();
@@ -67,10 +70,9 @@
             stoker_ids[i].value = form_data.verdeling[i].id;
             stoker_percs[i].value = form_data.verdeling[i].perc;
         }
-
-        if (form_data.bestaand == 1) {
-            $('#kleistad_muteer' + id).text('Wijzigen');
-            if (form_data.actie == 1) {
+        if (form_data.gereserveerd == 1) {
+            $('#kleistad_muteer' + id).text('Wijzig');
+            if (form_data.verwijderbaar == 1) {
                 $('#kleistad_tekst' + id).text('Wil je de reservering wijzigen of verwijderen ?');
                 $('#kleistad_verwijder' + id).show();
             } else {
@@ -79,7 +81,7 @@
             }
         } else {
             $('#kleistad_tekst' + id).text('Wil je de reservering toevoegen ?');
-            $('#kleistad_muteer' + id).text('Toevoegen');
+            $('#kleistad_muteer' + id).text('Voeg toe');
             $('#kleistad_verwijder' + id).hide();
         }
     }

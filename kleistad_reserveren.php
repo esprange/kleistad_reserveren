@@ -1,11 +1,11 @@
 <?php
 /*
 Plugin Name: Kleistad reserveren
-Plugin URI: http://www.kleistad.nl/
-Description: Een plugin voor het reserveren van de ovens
+Plugin URI: 
+Description: Een plugin voor het reserveren van de ovens en verwerken van de stook saldo
 Version: 2.0
 Author: Eric Sprangers
-Author URI: http://www.sprako.nl/
+Author URI: 
 License: GPL2
 */
 
