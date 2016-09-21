@@ -39,9 +39,10 @@ class Kleistad {
     }
 
     /**
-     * Wordpress capability voor bestuursleden
+     * Custom capabilities
      */
-    const OVERRIDE = 'KLEISTAD_OVERRIDE';
+    const OVERRIDE = 'kleistad_reserveer_voor_ander';
+    const RESERVEER = 'kleistad_reservering_aanmaken';
 
     /**
      * Plugin-versie
@@ -152,10 +153,21 @@ class Kleistad {
             wp_schedule_event(time() /* ('midnight') */, 'hourly', 'kleistad_kosten');
         }
 
+        /* 
+         * n.b. in principe heeft de (toekomstige) rol bestuurde de override capability en de (toekomstige) rol lid de reserve capability
+         * zolang die rollen nog niet gedefinieerd zijn hanteren we de onderstaande toekenning
+         */
         global $wp_roles;
+        
         $wp_roles->add_cap('administrator', self::OVERRIDE);
         $wp_roles->add_cap('editor', self::OVERRIDE);
         $wp_roles->add_cap('author', self::OVERRIDE);
+        
+        $wp_roles->add_cap('administrator', self::RESERVEER);
+        $wp_roles->add_cap('editor', self::RESERVEER);
+        $wp_roles->add_cap('author', self::RESERVEER);
+        $wp_roles->add_cap('contributor', self::RESERVEER);
+        $wp_roles->add_cap('subscriber', self::RESERVEER);
     }
 
     /**
@@ -164,13 +176,19 @@ class Kleistad {
     public static function deactivate() {
         wp_clear_scheduled_hook('kleistad_kosten');
 
-//        $timestamp = wp_next_scheduled( 'kleistad_kosten' );
-//        wp_unschedule_event( $timestamp, 'kleistad_kosten' );
-
         global $wp_roles;
+        /*
+         * de rollen verwijderen bij deactivering van de plugin. Bij aanpassing rollen (zie activate) het onderstaande ook aanpassen.
+         */
         $wp_roles->remove_cap('administrator', self::OVERRIDE);
         $wp_roles->remove_cap('editor', self::OVERRIDE);
         $wp_roles->remove_cap('author', self::OVERRIDE);
+
+        $wp_roles->remove_cap('administrator', self::RESERVEER);
+        $wp_roles->remove_cap('editor', self::RESERVEER);
+        $wp_roles->remove_cap('author', self::RESERVEER);
+        $wp_roles->remove_cap('contributor', self::RESERVEER);
+        $wp_roles->remove_cap('subscriber', self::RESERVEER);
     }
 
     /**
@@ -257,7 +275,7 @@ class Kleistad {
         $ovens = $wpdb->get_results(
             "SELECT * FROM {$wpdb->prefix}kleistad_ovens ORDER BY id");
         $gebruikers = get_users(
-            ['fields' => ['id', 'display_name'], 'orderby' => ['nicename']]);
+            ['fields' => ['id', 'display_name'], 'orderby' => ['nicename'], 'role__in' => ['subscriber', 'contributor', 'author', 'editor'], ]);
 
         ?>
         <div class="wrap">
@@ -389,6 +407,14 @@ class Kleistad {
     }
 
     /**
+     * help functie, leden moeten kunnen reserveren en stooksaldo aanpassingen doen
+     * 
+     */
+    private function reserveer() {
+        return current_user_can(self::RESERVEER);
+    }
+    
+    /**
      * help functie, lees mogelijke regeling
      * @return regeling waarde of false als niet bestaat of regeling array als oven_id afwezig/0
      */
@@ -437,12 +463,10 @@ class Kleistad {
     /**
      * shortcode handler voor tonen van saldo van gebruikers [kleistad_saldo_overzicht]
      * 
-     * @param type $atts
-     * @param type $contents
      * @return string (html)
      */
-    public function saldo_overzicht_handler($atts, $contents = null) {
-        if (!is_user_logged_in() || !$this->override()) {
+    public function saldo_overzicht_handler() {
+        if (!$this->override()) {
             return '';
         }
         wp_enqueue_script('kleistad-js');
@@ -466,12 +490,10 @@ class Kleistad {
     /**
      * shortcode handler voor tonen van rapporten [kleistad_rapport]
      * 
-     * @param type $atts
-     * @param type $contents
      * @return string (html)
      */
-    public function rapport_handler($atts, $contents = null) {
-        if (!is_user_logged_in()) {
+    public function rapport_handler() {
+        if (!$this->reserveer()) {
             return '';
         }
         wp_enqueue_script('kleistad-js');
@@ -528,12 +550,10 @@ class Kleistad {
     /**
      * shortcode handler voor emailen van het CSV bestand met transacties [kleistad_stookbestand]
      * 
-     * @param type $atts
-     * @param type $contents
      * @return string (html)
      */
-    public function stookbestand_handler($atts, $contents = null) {
-        if (!is_user_logged_in() || !$this->override()) {
+    public function stookbestand_handler() {
+        if (!$this->override()) {
             return '';
         }
         wp_enqueue_script('kleistad-js');
@@ -605,7 +625,6 @@ class Kleistad {
                         $totaal += $kosten;
                     }
                     $values [] = ($percentage == 0) ? '' : number_format($kosten, 2, ',', '');
-                    ;
                 }
                 $values [] = number_format($totaal, 2);
                 fputcsv($f, $values, ';', '"');
@@ -622,7 +641,6 @@ class Kleistad {
                 $html = 'Er is een fout opgetreden';
             }
         } else {
-            $datum = date('Y-m-j');
             $huidige_gebruiker_id = get_current_user_id();
             $html = '<form class="kleistad_form" action="' . get_permalink() . '" method="POST" >
         <input type="hidden" name="kleistad_gebruiker_id" value="' . $huidige_gebruiker_id . '" />
@@ -639,12 +657,10 @@ class Kleistad {
     /**
      * shortcode handler voor bijwerken saldo formulier [kleistad_saldo]
      * 
-     * @param type $atts
-     * @param type $contents
      * @return string (html)
      */
-    public function saldo_handler($atts, $contents = null) {
-        if (!is_user_logged_in()) {
+    public function saldo_handler() {
+        if (!$this->reserveer()) {
             return '';
         }
         wp_enqueue_script('kleistad-js');
@@ -672,7 +688,7 @@ class Kleistad {
                 $this->log_saldo("wijziging saldo $gebruiker->display_name van $huidig naar $saldo, betaling per $via.");
                 $html = "<div><p>Het saldo is bijgewerkt naar &euro; $saldo en een email is verzonden.</p></div>";
             } else {
-                $html = '<div><p>Er is een fout opgetreden</p></div>';
+                $html = '<div><p>Er is een fout opgetreden want de email kon niet verzonden worden</p></div>';
             }
         } else {
             $datum = date('Y-m-j');
@@ -710,11 +726,10 @@ class Kleistad {
      * shortcode handler voor reserveringen formulier [kleistad oven=x, naam=y]
      * 
      * @param type $atts
-     * @param type $contents
      * @return string (html)
      */
-    public function reservering_handler($atts, $contents = null) {
-        if (!is_user_logged_in()) {
+    public function reservering_handler($atts) {
+        if (!$this->reserveer()) {
             return '';
         }
         wp_enqueue_script('kleistad-js');
