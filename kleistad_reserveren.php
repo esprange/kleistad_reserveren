@@ -15,5 +15,12 @@ register_activation_hook( __FILE__, ['Kleistad','activate'] );
 
 register_deactivation_hook( __FILE__, ['Kleistad','deactivate'] );
 
-$kleistad = new Kleistad();
+add_action('plugins_loaded', [ Kleistad::get_instance(), 'setup' ] );
+
+//function kleistad_update_ovenkosten () {
+//    $kleistad = new Kleistad();
+//    $kleistad->update_ovenkosten();
+//}
+//
+//$kleistad = new Kleistad();
 
