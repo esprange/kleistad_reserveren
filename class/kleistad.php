@@ -1,5 +1,4 @@
 <?php
-
 /*
   Class: Kleistad
   Description: Basis klas voor kleistad_reserveren plugin
@@ -47,12 +46,12 @@ class Kleistad {
     /**
      * Plugin-versie
      */
-    const VERSION = 2;
+    const VERSIE = 2;
 
     /**
      * Aantal dagen tussen reserveer datum en saldo verwerkings datum
      */
-    const TERMIJN = 1;
+    const TERMIJN = 4;
 
     /**
      *
@@ -76,19 +75,17 @@ class Kleistad {
      * constructor, alleen registratie van acties
      */
     public function __construct() {
-        
+        $this->url = 'kleistad_reserveren/v' . self::VERSIE;
+        $this->info_email = 'info@' . substr(strrchr(get_option('admin_email'), '@'), 1);
+        $this->from_email = 'no-reply@' . substr(strrchr(get_option('admin_email'), '@'), 1);
     }
 
     /**
      * Initialiseer de plugin
      */
     public function setup() {
-        $this->url = 'kleistad_reserveren/v2';
-        $this->info_email = 'Kleistad <' . get_option('admin_email') . '>';
-        $this->from_email = 'Kleistad <no-reply@kleistad.nl>';
-
         if (is_admin()) {
-            add_action('admin_menu', function (){
+            add_action('admin_menu', function () {
                 add_options_page('Kleistad reserveringen', 'Instellingen Kleistad reserveringen', 'manage_options', 'kleistad-reserveren', [$this, 'instellingen']);
             });
         } else {
@@ -105,42 +102,56 @@ class Kleistad {
             add_shortcode('kleistad', [$this, 'reservering_handler']);
         }
     }
-    
+
     /**
      * 
      * @global type $wpdbdatabase tabellen aanmaken of aanpassen, alleen bij activering plugin
      */
     private static function database() {
-        global $wpdb;
-        $charset_collate = $wpdb->get_charset_collate();
+        $database_version = intval(get_option('kleistad-reserveren', 0));
+        if ($database_version < self::VERSIE) {
+            global $wpdb;
+            $charset_collate = $wpdb->get_charset_collate();
 
-        flush_rewrite_rules();
-        require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
-        dbDelta("CREATE TABLE {$wpdb->prefix}kleistad_reserveringen (
-            id int(10) NOT NULL AUTO_INCREMENT,
-            oven_id smallint(4) NOT NULL,
-            jaar smallint(4) NOT NULL,
-            maand tinyint(2) NOT NULL,
-            dag tinyint(1) NOT NULL,
-            gebruiker_id int(10) NOT NULL,
-            temperatuur int(10),
-            soortstook tinytext,
-            programma smallint(4),
-            gemeld tinyint(1) DEFAULT 0,
-            verwerkt tinyint(1) DEFAULT 0,
-            verdeling tinytext,
-            opmerking tinytext,
-            PRIMARY KEY  (id)
-            ) $charset_collate;"
-        );
+            flush_rewrite_rules();
+            require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
+            dbDelta("CREATE TABLE {$wpdb->prefix}kleistad_reserveringen (
+                id int(10) NOT NULL AUTO_INCREMENT,
+                oven_id smallint(4) NOT NULL,
+                jaar smallint(4) NOT NULL,
+                maand tinyint(2) NOT NULL,
+                dag tinyint(1) NOT NULL,
+                gebruiker_id int(10) NOT NULL,
+                temperatuur int(10),
+                soortstook tinytext,
+                programma smallint(4),
+                gemeld tinyint(1) DEFAULT 0,
+                verwerkt tinyint(1) DEFAULT 0,
+                verdeling tinytext,
+                opmerking tinytext,
+                PRIMARY KEY  (id)
+                ) $charset_collate;"
+            );
 
-        dbDelta("CREATE TABLE {$wpdb->prefix}kleistad_ovens (
-            id int(10) NOT NULL AUTO_INCREMENT,
-            naam tinytext,
-            kosten numeric(10,2),
-            PRIMARY KEY  (id)
-            ) $charset_collate;"
-        );
+            dbDelta("CREATE TABLE {$wpdb->prefix}kleistad_ovens (
+                id int(10) NOT NULL AUTO_INCREMENT,
+                naam tinytext,
+                kosten numeric(10,2),
+                PRIMARY KEY  (id)
+                ) $charset_collate;"
+            );
+            update_option('kleistad-reserveren', self::VERSIE);
+            /*
+             * Conversie, alle oude reserveringen zijn gemeld en verwerkt
+             */
+            $vandaag = date('Y-m-d');
+            $wpdb->query("UPDATE {$wpdb->prefix}kleistad_reserveringen SET 
+                    gemeld=1, 
+                    verwerkt=1,
+                    verdeling=concat('{\"0\":{\"id\":\"',gebruiker_id,'\",\"perc\":\"100\"},\"1\":{\"id\":\"0\",\"perc\":\"0\"},\"2\":{\"id\":\"0\",\"perc\":\"0\"},\"3\":{\"id\":\"0\",\"perc\":\"0\"},\"4\":{\"id\":\"0\",\"perc\":\"0\"}}')
+                WHERE
+                   str_to_date(concat(jaar,'-',maand,'-',dag),'%Y-%m-%d') < '$vandaag'");            
+        }
     }
 
     /**
@@ -153,16 +164,16 @@ class Kleistad {
             wp_schedule_event(time() /* ('midnight') */, 'hourly', 'kleistad_kosten');
         }
 
-        /* 
+        /*
          * n.b. in principe heeft de (toekomstige) rol bestuurde de override capability en de (toekomstige) rol lid de reserve capability
          * zolang die rollen nog niet gedefinieerd zijn hanteren we de onderstaande toekenning
          */
         global $wp_roles;
-        
+
         $wp_roles->add_cap('administrator', self::OVERRIDE);
         $wp_roles->add_cap('editor', self::OVERRIDE);
         $wp_roles->add_cap('author', self::OVERRIDE);
-        
+
         $wp_roles->add_cap('administrator', self::RESERVEER);
         $wp_roles->add_cap('editor', self::RESERVEER);
         $wp_roles->add_cap('author', self::RESERVEER);
@@ -236,10 +247,10 @@ class Kleistad {
      */
     public function register_scripts() {
         wp_register_script(
-            'kleistad-js', plugins_url('../js/kleistad.js', __FILE__), ['jquery'], self::VERSION, true
+            'kleistad-js', plugins_url('../js/kleistad.js', __FILE__), ['jquery'], self::VERSIE, true
         );
         wp_register_style(
-            'kleistad-css', plugins_url('../css/kleistad.css', __FILE__), [], self::VERSION
+            'kleistad-css', plugins_url('../css/kleistad.css', __FILE__), [], self::VERSIE
         );
 
         wp_localize_script(
@@ -251,14 +262,14 @@ class Kleistad {
             ]
         );
     }
-    
+
     /**
      * 
      * admin instellingen scherm
      */
     public function instellingen() {
         global $wpdb;
-        
+
         if (!is_null(filter_input(INPUT_POST, 'kleistad_ovens_verzonden'))) {
             $naam = filter_input(INPUT_POST, 'kleistad_oven_naam', FILTER_SANITIZE_SPECIAL_CHARS);
             $tarief = str_replace(",", ".", filter_input(INPUT_POST, 'kleistad_oven_tarief'));
@@ -271,94 +282,170 @@ class Kleistad {
             $tarief = str_replace(",", ".", filter_input(INPUT_POST, 'kleistad_regeling_tarief', FILTER_SANITIZE_SPECIAL_CHARS));
             $this->maak_regeling($gebruiker_id, $oven_id, $tarief);
         }
-        
+
+        if (!is_null(filter_input(INPUT_POST, 'kleistad_saldo_verzonden'))) {
+            $gebruiker_id = filter_input(INPUT_POST, 'kleistad_saldo_gebruiker_id', FILTER_VALIDATE_INT);
+            $saldo = str_replace(",", ".", filter_input(INPUT_POST, 'kleistad_saldo_wijzigen', FILTER_SANITIZE_SPECIAL_CHARS));
+            update_user_meta($gebruiker_id, 'stooksaldo', $saldo);
+        }
+        /*
+        if (!is_null(filter_input(INPUT_POST, 'kleistad_import_verzonden'))) {
+            $bestand = $_FILES['kleistad_import_bestand'];
+            $upload_dir = wp_upload_dir();
+            $importeren = filter_input(INPUT_POST, 'kleistad_importeren') != 'false';
+            if ($bestand['error'] == UPLOAD_ERR_OK) {
+                move_uploaded_file($bestand['tmp_name'], $upload_dir['basedir'] . "/{$bestand['name']}");
+            }
+            $this->import($bestand['name'], $importeren);
+        }
+        */
         $ovens = $wpdb->get_results(
             "SELECT * FROM {$wpdb->prefix}kleistad_ovens ORDER BY id");
         $gebruikers = get_users(
-            ['fields' => ['id', 'display_name'], 'orderby' => ['nicename'], 'role__in' => ['subscriber', 'contributor', 'author', 'editor'], ]);
-
+            ['fields' => ['id', 'display_name'], 'orderby' => ['nicename'],]);
         ?>
         <div class="wrap">
-        <h2>Regelingen</h2>
-        <table class="widefat">
-            <thead>
-                <tr>
-                    <th class="manage-column column-naamregeling" id="naamregeling" scope="col">Naam</th>
-                    <th class="manage-column column-idregeling" id="idregeling" scope="col">Oven id</th>
-                    <th class="manage-column column-tariefregeling" id="tariefregeling" scope="col">Tarief</th></tr>
-            </thead>
-            <tbody>
-            <?php foreach ($gebruikers as $gebruiker) {
-            $regelingen = $this->lees_regeling($gebruiker->id);
-            if ($regelingen == false) {
-                continue;
-            }
-            foreach ($regelingen as $id => $regeling) { ?>
-                <tr><td><?php echo $gebruiker->display_name ?></td><td><?php echo $id ?></td><td>&euro; <?php echo number_format($regeling, 2, ',', '') ?></td></tr>
-            <?php }
-            } ?>
-            </tbody>
-        </table>
-        <h3>Nieuwe regeling aanmaken of bestaande wijzigen</h3> 
-        <form action="<?php echo get_permalink() ?>" method="POST">
-            <table class="form-table">
+            <h2>Regelingen</h2>
+            <table class="widefat">
+                <thead>
+                    <tr>
+                        <th class="manage-column column-naamregeling" id="naamregeling" scope="col">Naam</th>
+                        <th class="manage-column column-idregeling" id="idregeling" scope="col">Oven id</th>
+                        <th class="manage-column column-tariefregeling" id="tariefregeling" scope="col">Tarief</th></tr>
+                </thead>
                 <tbody>
-                    <tr>
-                        <th scope="row"><label for="kleistad_regeling_id">Oven id</label></th>
-                        <td><input type="number" name="kleistad_regeling_id" id="kleistad_regeling_id" /></td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="kleistad_regeling_gebruiker_id">Gebruiker</label></th>
-                        <td><select name="kleistad_regeling_gebruiker_id" id="kleistad_regeling_gebruiker_id" >
-                        <?php foreach ($gebruikers as $gebruiker) : ?>
-                            <option value="<?php echo $gebruiker->id ?>" ><?php echo $gebruiker->display_name ?></option>
-                        <?php endforeach ?>
-                        </select></td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="kleistad_regeling_tarief">Tarief</label></th>
-                        <td><input type="number" step="any" name="kleistad_regeling_tarief" id="kleistad_regeling_tarief" /></td>
-                    </tr>
+                    <?php
+                    foreach ($gebruikers as $gebruiker) {
+                        $regelingen = $this->lees_regeling($gebruiker->id);
+                        if ($regelingen == false) {
+                            continue;
+                        }
+                        foreach ($regelingen as $id => $regeling) {
+                            ?>
+                            <tr><td><?php echo $gebruiker->display_name ?></td><td><?php echo $id ?></td><td>&euro; <?php echo number_format($regeling, 2, ',', '') ?></td></tr>
+                        <?php
+                        }
+                    }
+                    ?>
                 </tbody>
             </table>
-            <p class="submit"><button type="submit" class="button-primary" name="kleistad_regeling_verzonden" id="kleistad_regeling_verzonden">Verzenden</button></p>
-        </form>
-        <hr />
-        <h2>Ovens</h2>
-        <table class="widefat">
-            <thead>
-                <tr>
-                    <th class="manage-column column-idovens" id="idovens" scope="col">Oven id</th>
-                    <th class="manage-column column-naamvens" id="naamovens" scope="col">Naam</th>
-                    <th class="manage-column column-tariefovens" id="tariefovens">Tarief</th>
-                </tr>
-            </thead>
-            <tbody>
-        <?php foreach ($ovens as $oven) { ?>
-                <tr><td><?php echo $oven->id ?></td><td><?php echo $oven->naam ?></td><td>&euro; <?php echo number_format($oven->kosten, 2, ',', '') ?></td></tr>
-        <?php } ?>
-            </tbody>
-        </table>
-        <h3>Nieuwe oven aanmaken</h3> 
-        <form class="kleistad_form" action="<?php echo get_permalink() ?>" method="POST" >
-            <table class="form-table">
+            <h3>Nieuwe regeling aanmaken of bestaande wijzigen</h3> 
+            <form action="<?php echo get_permalink() ?>" method="POST">
+                <table class="form-table">
+                    <tbody>
+                        <tr>
+                            <th scope="row"><label for="kleistad_regeling_id">Oven id</label></th>
+                            <td><input type="number" name="kleistad_regeling_id" id="kleistad_regeling_id" /></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="kleistad_regeling_gebruiker_id">Gebruiker</label></th>
+                            <td><select name="kleistad_regeling_gebruiker_id" id="kleistad_regeling_gebruiker_id" >
+                                    <?php foreach ($gebruikers as $gebruiker) : ?>
+                                        <option value="<?php echo $gebruiker->id ?>" ><?php echo $gebruiker->display_name ?></option>
+        <?php endforeach ?>
+                                </select></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="kleistad_regeling_tarief">Tarief</label></th>
+                            <td><input type="number" step="any" name="kleistad_regeling_tarief" id="kleistad_regeling_tarief" /></td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p class="submit"><button type="submit" class="button-primary" name="kleistad_regeling_verzonden" id="kleistad_regeling_verzonden">Verzenden</button></p>
+            </form>
+            <hr />
+            <h2>Ovens</h2>
+            <table class="widefat">
+                <thead>
+                    <tr>
+                        <th class="manage-column column-idovens" id="idovens" scope="col">Oven id</th>
+                        <th class="manage-column column-naamvens" id="naamovens" scope="col">Naam</th>
+                        <th class="manage-column column-tariefovens" id="tariefovens">Tarief</th>
+                    </tr>
+                </thead>
                 <tbody>
-                    <tr>
-                        <th scope="row"><label for="kleistad_oven_naam" >Naam</label></th>
-                        <td><input type="text" maxlength="30" name="kleistad_oven_naam" id="kleistad_oven_naam" /></td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="kleistad_oven_tarief" >Tarief</label></th>
-                        <td><input type="number" step="any" name="kleistad_oven_tarief" id="kleistad_oven_tarief" /></td>
-                    </tr>
+                    <?php foreach ($ovens as $oven) : ?>
+                        <tr><td><?php echo $oven->id ?></td><td><?php echo $oven->naam ?></td><td>&euro; <?php echo number_format($oven->kosten, 2, ',', '') ?></td></tr>
+        <?php endforeach ?>
                 </tbody>
             </table>
-            <p class="submit"><button type="submit" class="button-primary" name="kleistad_ovens_verzonden" id="kleistad_ovens_verzonden">Verzenden</button></p>
-        </form>
+            <h3>Nieuwe oven aanmaken</h3> 
+            <form class="kleistad_form" action="<?php echo get_permalink() ?>" method="POST" >
+                <table class="form-table">
+                    <tbody>
+                        <tr>
+                            <th scope="row"><label for="kleistad_oven_naam" >Naam</label></th>
+                            <td><input type="text" maxlength="30" name="kleistad_oven_naam" id="kleistad_oven_naam" /></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="kleistad_oven_tarief" >Tarief</label></th>
+                            <td><input type="number" step="any" name="kleistad_oven_tarief" id="kleistad_oven_tarief" /></td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p class="submit"><button type="submit" class="button-primary" name="kleistad_ovens_verzonden" id="kleistad_ovens_verzonden">Verzenden</button></p>
+            </form>
+            <hr />
+            <h2>Saldo</h2>
+            <table class="widefat">
+                <thead>
+                    <tr>
+                        <th class="manage-column column-naamsaldo" id="naamsaldo" scope="col">Naam</th>
+                        <th class="manage-column column-wijzigingsaldo" id="wijzigingsaldo" scope="col">Saldo</th></tr>
+                </thead>
+                <tbody>
+                    <?php
+                    foreach ($gebruikers as $gebruiker) {
+                        $huidig = get_user_meta($gebruiker->id, 'stooksaldo', true);
+                        if ($huidig <> '') {
+                            ?>
+                            <tr><td><?php echo $gebruiker->display_name ?></td><td>&euro; <?php echo number_format((float) $huidig, 2, ',', '') ?></td></tr>
+                        <?php
+                        }
+                    }
+                    ?>
+                </tbody>
+            </table>
+            <h3>Saldo wijzigen</h3> 
+            <form action="<?php echo get_permalink() ?>" method="POST">
+                <table class="form-table">
+                    <tbody>
+                        <tr>
+                            <th scope="row"><label for="kleistad_saldo_gebruiker_id">Gebruiker</label></th>
+                            <td><select name="kleistad_saldo_gebruiker_id" id="kleistad_saldo_gebruiker_id" >
+                                    <?php foreach ($gebruikers as $gebruiker) : ?>
+                                        <option value="<?php echo $gebruiker->id ?>" ><?php echo $gebruiker->display_name ?></option>
+        <?php endforeach ?>
+                                </select></td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="kleistad_saldo_wijzigen">Tarief</label></th>
+                            <td><input type="number" step="any" name="kleistad_saldo_wijzigen" id="kleistad_saldo_wijzigen" /></td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p class="submit"><button type="submit" class="button-primary" name="kleistad_saldo_verzonden" id="kleistad_saldo_verzonden">Verzenden</button></p>
+            </form>
+<!--            <hr />
+            <h2>Importeren</h2> 
+            <form action="< ?php echo get_permalink() ? >" method="POST" enctype="multipart/form-data" encoding="multipart/form-data" >
+                <table class="form-table">
+                    <tbody>
+                        <tr>
+                            <th scope="row"><label for="kleistad_import_bestand" >Bestand</label></th>
+                            <td><input type="file" name="kleistad_import_bestand" id="kleistad_import_bestand" /></td>
+                            <th scope="row"><label for="kleistad_importeren" >Testen</label></th>
+                            <td><input type="checkbox" name="kleistad_importeren" id="kleistad_importeren" value="false" checked /></td>
+                        </tr>
+                    </tbody>
+                </table>
+                <p class="submit"><button type="submit" class="button-primary" name="kleistad_import_verzonden" id="kleistad_import_verzonden">Verzenden</button></p>
+            </form>-->
+
         </div>
-        <?php        
+        <?php
     }
-    
+
     /**
      * wrapper voor wp_mail functie
      * @param string $to
@@ -367,7 +454,7 @@ class Kleistad {
      * @param string $attachment
      */
     public function mail($to, $subject, $message, $attachment = '') {
-        $headers = ["From: $this->from_email", "Bcc: $this->info_email", "Content-Type: text/html; charset=UTF-8"];
+        $headers = ["From: Kleistad <$this->from_email>", "Bcc: $this->info_email", "Content-Type: text/html; charset=UTF-8"];
         $htmlmessage = '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
             <html xmlns="http://www.w3.org/1999/xhtml">
             <head>
@@ -376,21 +463,16 @@ class Kleistad {
             <meta name="format-detection" content="telephone=no"/>
               <title>' . $subject . '</title>
             </head>
-            <body yahoo="fix">
+            <body>
                 <table width="100%" border="0" align="center" cellpadding="0" cellspacing="0">
-            <!-- START HEADER/BANNER -- 
                     <tr>
-                        <td align="center">
-                        </td>
-                    </tr>
-              -- END HEADER/BANNER -->
-                    <tr>
-                        <td align="left" style="font-family:helvetica; font-size:13pt" >' . $message .
-            '<p>Met vriendelijke groet,</p>
-                         <p>Kleistad</p></td>
+                        <td align="left" style="font-family:helvetica; font-size:13pt" >' . $message . '<p>Met vriendelijke groet,</p>
+                         <p>Kleistad</p>
+                         <a href="mailto:' . $this->info_email . '" target="_top">' . $this->info_email . '</a>
+                         </td>                         
                     </tr>
                     <tr>
-                        <td align="center" style="font-family:calibri; font-size:9pt" >Deze mail is automatisch gegenereerd.</td>
+                        <td align="center" style="font-family:calibri; font-size:9pt" >Deze e-mail is automatisch gegenereerd en kan niet beantwoord worden.</td>
                     </tr>
                 </table>
             </body>
@@ -413,7 +495,7 @@ class Kleistad {
     private function reserveer() {
         return current_user_can(self::RESERVEER);
     }
-    
+
     /**
      * help functie, lees mogelijke regeling
      * @return regeling waarde of false als niet bestaat of regeling array als oven_id afwezig/0
@@ -480,7 +562,7 @@ class Kleistad {
             <tbody>';
         foreach ($gebruikers as $gebruiker) {
             $saldo = number_format((float) get_user_meta($gebruiker->id, 'stooksaldo', true), 2, ',', '');
-            $html .= "<tr><td>$gebruiker->display_name</td><td>$saldo</td></tr>";
+            $html .= "<tr><td>$gebruiker->display_name</td><td>&euro; $saldo</td></tr>";
         }
         $html .= '</tbody>
             </table>';
@@ -506,28 +588,20 @@ class Kleistad {
         $reserveringen = $wpdb->get_results(
             "SELECT RE.id AS id, oven_id, naam, kosten, soortstook, temperatuur, programma,gebruiker_id, dag, maand, jaar, verdeling, verwerkt FROM
                 {$wpdb->prefix}kleistad_reserveringen RE, {$wpdb->prefix}kleistad_ovens OV
-            WHERE RE.oven_id = OV.id AND str_to_date(concat(jaar,'-',maand,'-',dag),'%Y-%m-%d') > $datum_begin 
+            WHERE RE.oven_id = OV.id AND str_to_date(concat(jaar,'-',maand,'-',dag),'%Y-%m-%d') > '$datum_begin' 
                     ORDER BY jaar, maand, dag ASC");
         $html = "<table class=\"kleistad_rapport\">
             <thead>
                 <tr><th colspan=\"9\">Stookrapport voor $huidige_gebruiker->display_name</th></tr>
-                <tr><th>Datum</th><th>Oven</th><th>Stoker</th><th>Stook</th><th>Temp</th><th>Prog#</th><th>%</th><th>Kosten</th><th>Voorlopig</th></tr>
+                <tr><th>Datum</th><th>Oven</th><th>Stoker</th><th>Stook</th><th>Temp</th><th>Prog</th><th>%</th><th>Kosten</th><th>Voorlopig</th></tr>
             </thead>
             <tbody>";
         foreach ($reserveringen as $reservering) {
             if ($reservering->verdeling == null) {
-                continue;
-            }
-            $stookdelen = json_decode($reservering->verdeling, true);
-            foreach ($stookdelen as $stookdeel) {
-                if (intval($stookdeel['id']) <> $huidige_gebruiker->ID) {
+                if ($reservering->gebruiker_id <> $huidige_gebruiker->ID) {
                     continue;
                 }
-                // als er een speciale regeling / tarief is afgesproken, dan geldt dat tarief
-                $regeling = $this->lees_regeling($reservering->gebruiker_id, $reservering->oven_id);
-                $kosten = number_format(round($stookdeel['perc'] / 100 * ( (!$regeling ) ? $reservering->kosten : $regeling ), 2), 2, ',', '');
                 $stoker = get_userdata($reservering->gebruiker_id);
-                $gereserveerd = $reservering->verwerkt != 1 ? '<span class="genericon genericon-checkmark"></span>' : '';
                 $html .= "
                     <tr>
                         <td>$reservering->dag/$reservering->maand</td>
@@ -535,18 +609,42 @@ class Kleistad {
                         <td>$stoker->display_name</td>
                         <td>$reservering->soortstook</td>
                         <td>$reservering->temperatuur</td>
-                        <td>$reservering->programma</td>
-                        <td>{$stookdeel['perc']}</td>
-                        <td>&euro; $kosten</td>
-                        <td style=\"text-align:center\">$gereserveerd</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
                     </tr>";
+            } else {
+                $stookdelen = json_decode($reservering->verdeling, true);
+                foreach ($stookdelen as $stookdeel) {
+                    if (intval($stookdeel['id']) <> $huidige_gebruiker->ID) {
+                        continue;
+                    }
+                    // als er een speciale regeling / tarief is afgesproken, dan geldt dat tarief
+                    $regeling = $this->lees_regeling($reservering->gebruiker_id, $reservering->oven_id);
+                    $kosten = number_format(round($stookdeel['perc'] / 100 * ( (!$regeling ) ? $reservering->kosten : $regeling ), 2), 2, ',', '');
+                    $stoker = get_userdata($reservering->gebruiker_id);
+                    $gereserveerd = $reservering->verwerkt != 1 ? '<span class="genericon genericon-checkmark"></span>' : '';
+                    $html .= "
+                        <tr>
+                            <td>$reservering->dag/$reservering->maand</td>
+                            <td>$reservering->naam</td>
+                            <td>$stoker->display_name</td>
+                            <td>$reservering->soortstook</td>
+                            <td>$reservering->temperatuur</td>
+                            <td>$reservering->programma</td>
+                            <td>{$stookdeel['perc']}</td>
+                            <td>&euro; $kosten</td>
+                            <td style=\"text-align:center\">$gereserveerd</td>
+                        </tr>";
+                }
             }
         }
         $html .="</tbody>
             </table>";
         return $html;
     }
-    
+
     /**
      * shortcode handler voor emailen van het CSV bestand met transacties [kleistad_stookbestand]
      * 
@@ -576,6 +674,9 @@ class Kleistad {
                         ORDER BY jaar, maand, dag ASC");
             $medestokers = [];
             foreach ($stoken as $stook) {
+                if ($stook->verdeling == null) {
+                    continue;
+                }
                 $stookdelen = json_decode($stook->verdeling, true);
                 for ($i = 0; $i < 5; $i++) {
                     $medestoker_id = $stookdelen[$i]['id'];
@@ -735,11 +836,12 @@ class Kleistad {
         wp_enqueue_script('kleistad-js');
         wp_enqueue_style('kleistad-css');
         add_thickbox();
+        $oven = 0;
 
         extract(shortcode_atts(['oven' => 'niet ingevuld'], $atts, 'kleistad'));
         if (intval($oven) > 0 && intval($oven) < 999) {
             global $wpdb;
-            $naam = $wpdb->get_var("SELECT naam FROM {$wpdb->prefix}kleistad_ovens WHERE id = $oven");
+            $naam = $wpdb->get_var("SELECT naam FROM {$wpdb->prefix}kleistad_ovens WHERE id = '$oven'");
             if ($naam == null) {
                 return "<p>oven met id $oven is niet bekend in de database !</p>";
             }
@@ -808,7 +910,7 @@ class Kleistad {
                         <td><select name=\"kleistad_stoker_id$oven\" class=\"kleistad_verdeel\" data-oven=\"$oven\" >
                         <option value=\"0\" >&nbsp;</option>";
                 foreach ($gebruikers as $gebruiker) {
-                    if ($gebruiker->id <> $huidige_gebruiker->ID) {
+                    if (($gebruiker->id <> $huidige_gebruiker->ID) || $this->override()) {
                         $html .= "<option value=\"{$gebruiker->id}\">{$gebruiker->display_name}</option>";
                     }
                 }
@@ -854,11 +956,12 @@ class Kleistad {
             "SELECT RE.id AS id, oven_id, naam, kosten, gebruiker_id, dag, maand, jaar FROM
                 {$wpdb->prefix}kleistad_reserveringen RE,
                 {$wpdb->prefix}kleistad_ovens OV
-            WHERE RE.oven_id = OV.id AND gemeld = 0 AND str_to_date(concat(jaar,'-',maand,'-',dag),'%Y-%m-%d') < $vandaag");
+            WHERE RE.oven_id = OV.id AND gemeld = '0' AND str_to_date(concat(jaar,'-',maand,'-',dag),'%Y-%m-%d') < '$vandaag'");
         foreach ($notificaties as $notificatie) {
             // send reminder email
             $datum = strftime('%x', mktime(0, 0, 0, $notificatie->maand, $notificatie->dag, $notificatie->jaar));
             $datum_verwerking = strftime('%x', mktime(0, 0, 0, $notificatie->maand, $notificatie->dag + self::TERMIJN, $notificatie->jaar));
+            $datum_deadline = strftime('%x', mktime(0, 0, 0, $notificatie->maand, $notificatie->dag + self::TERMIJN - 1, $notificatie->jaar));
             $gebruiker = get_userdata($notificatie->gebruiker_id);
 
             // als er een speciale regeling / tarief is afgesproken, dan geldt dat tarief
@@ -871,8 +974,9 @@ class Kleistad {
             $message = "<p>Beste $gebruiker->first_name,</p><br />
                  <p>je hebt nu de $notificatie->naam in gebruik. Er zal op <strong>$datum_verwerking</strong> maximaal <strong>&euro; $kosten</strong>
                  van je stooksaldo worden afgeschreven.</p>
-                 <p>Controleer voorafgaand deze datum of je de verdeling van de stookkosten onder de eventuele medestokers juist hebt
-                 ingevuld. Daarna kan dit namelijk niet meer gewijzigd worden!</p>";
+                 <p>Controleer voor deze datum of je de verdeling van de stookkosten onder de eventuele medestokers hebt doorgegeven in de 
+                 <a href=\"http://www.kleistad.nl/leden/oven-reserveren/\">reservering</a> van de oven.
+                 Je kunt nog wijzigingen aanbrengen tot <strong>$datum_deadline</strong>. Daarna kan er niets meer gewijzigd worden!</p>";
             $this->mail($to, "Kleistad oven gebruik op $datum", $message);
         }
         /*
@@ -883,7 +987,7 @@ class Kleistad {
             "SELECT RE.id AS id, gebruiker_id, oven_id, naam, verdeling, kosten, dag, maand, jaar FROM
                 {$wpdb->prefix}kleistad_reserveringen RE,
                 {$wpdb->prefix}kleistad_ovens OV
-                WHERE RE.oven_id = OV.id AND verwerkt = 0 AND str_to_date(concat(jaar,'-',maand,'-',dag),'%Y-%m-%d') <= '$transactie_datum'");
+                WHERE RE.oven_id = OV.id AND verwerkt = '0' AND str_to_date(concat(jaar,'-',maand,'-',dag),'%Y-%m-%d') <= '$transactie_datum'");
         foreach ($transacties as $transactie) {
             $datum = strftime('%x', mktime(0, 0, 0, $transactie->maand, $transactie->dag, $transactie->jaar));
             if ($transactie->verdeling == '') {
@@ -916,14 +1020,104 @@ class Kleistad {
                 $to = "$stoker->first_name $stoker->last_name <$stoker->user_email>";
                 $message = "<p>Beste $stoker->first_name,</p><br />
                     <p>je stooksaldo is verminderd met &euro; $bedrag en is nu <strong>&euro; $saldo</strong>.</p>
-                    <p>$gebruiker->first_name $gebruiker->last_name heeft aangegeven dat jij {$stookdeel['perc']} %
-                    gebruikt hebt van de stook op $datum in de $transactie->naam.</p>";
+                    <p>$gebruiker->first_name $gebruiker->last_name heeft aangegeven dat jij {$stookdeel['perc']} % gebruikt hebt van de stook op $datum in de $transactie->naam.</p>
+                    <p>Je kunt op de website van Kleistad wanneer je ingelogd bent je persoonlijke <a href=\"http://www.kleistad.nl/leden/gegevens-stook/\">stookoverzicht</a> bekijken.</p>";
                 $this->mail($to, 'Kleistad kosten zijn verwerkt op het stooksaldo', $message);
             }
         }
         $this->log_saldo("verwerking stookkosten gereed.");
     }
 
+    /**
+     * Importeer verdeling
+     * @param string $bestand
+     * @param bool $importeren
+     */
+    /*
+    public function import($bestand, $importeren) {
+        if ($bestand == '') {
+            echo "<p style=\"color:red\" ><strong>geen geldige bestandsnaam : '$bestand'</strong></p>";
+            return;
+        }
+        $upload_dir = wp_upload_dir();
+        $file = fopen($upload_dir['basedir'] . "/$bestand", 'r');
+        if (!$file) {
+            echo "<p style=\"color:red\" ><strong>bestand '$bestand' niet gevonden</strong></p>";
+            return;
+        }
+
+        while (!feof($file)) {
+            $fields = (fgetcsv($file, 0, ',', '"'));
+            $datum = date_parse_from_format('d-m-Y', $fields[0]);
+            $dag = $datum['day'];
+            $maand = $datum['month'];
+            $jaar = $datum['year'];
+
+            $oven_id = intval($fields[1]);
+            $soortstook = substr(ucwords($fields[2]), 0, 12);
+            $temperatuur = intval($fields[3]) == 0 ? null : intval($fields[3]);
+            $programma = intval($fields[4]) == 0 ? null : intval($fields[4]);
+
+            $foute_gebruiker = '';
+            for ($i=5; $i<14; $i=$i+2) {
+                if (intval($fields[$i])>0 and !get_userdata(intval($fields[$i]))) {
+                    $foute_gebruiker = $fields[$i];
+                }
+            }
+            $som = 0;
+            for ($i=6; $i<15; $i=$i+2) {
+                $som += intval($fields[$i]);
+            }
+            
+            $verdeling_array = [
+                '0' => ['id' => $fields[5], 'perc' => $fields[6]],
+                '1' => ['id' => $fields[7], 'perc' => $fields[8]],
+                '2' => ['id' => $fields[9], 'perc' => $fields[10]],
+                '3' => ['id' => $fields[11], 'perc' => $fields[12]],
+                '4' => ['id' => $fields[13], 'perc' => $fields[14]]];
+            $verdeling = json_encode($verdeling_array, JSON_FORCE_OBJECT);
+            echo "<p>te importeren:</p>
+            <ul>
+                <li>dag = $dag</li>
+                <li>maand = $maand</li>
+                <li>jaar = $jaar</li>
+                <li>oven_id = $oven_id</li>
+                <li>soortstook = $soortstook</li>
+                <li>temperatuur = $temperatuur</li>
+                <li>programma = $programma</li>
+                <li>verdeling = $verdeling</li>
+            </ul>";
+            if ($foute_gebruiker != '') {
+                echo "<p style=\"color:red\" ><strong>gebruiker $foute_gebruiker is niet gevonden de database</strong><p>";
+                continue;
+            }
+            if ($som != 100) {
+                echo "<p style=\"color:red\" ><strong>de som van de percentages is ongelijk aan 100<strong><p>";
+                continue;
+            }
+            global $wpdb;
+            $id = $wpdb->get_var("SELECT id FROM {$wpdb->prefix}kleistad_reserveringen WHERE
+                oven_id = '$oven_id' AND dag = '$dag' AND maand = '$maand' and jaar = '$jaar'");
+            if (is_null($id)) {
+                echo '<p style="color:red" ><strong>deze reservering is niet gevonden in de database</strong><p>';
+                continue;
+            } 
+            if ($importeren) {
+                echo '<p style="color:green" ><strong>gevonden, nu updaten ...</strong></p>';
+                $wpdb->update("{$wpdb->prefix}kleistad_reserveringen", [
+                    'temperatuur' => $temperatuur,
+                    'soortstook' => $soortstook,
+                    'programma' => $programma,
+                    'verdeling' => $verdeling,], ['id' => $id]);
+            } else {
+                echo '<p style="color:green" ><strong>gevonden, test ok</strong></p>';
+            }
+        }
+
+        fclose($file);
+    }
+    */
+    
     /**
      * Callback handler (wordt vanuit browser aangeroepen) voor het tonen van de reserveringen
      * 
@@ -1000,13 +1194,13 @@ class Kleistad {
                             $gereserveerd = true;
                             if ($reservering->gebruiker_id == $huidige_gebruiker_id) {
                                 $kleur = !$datum_verstreken ? 'green' : $kleur;
-                                $wijzigbaar = !$verwerkt;
+                                $wijzigbaar = !$verwerkt || is_super_admin();
                                 $verwijderbaar = $this->override() ?
                                     !$verwerkt : !$datum_verstreken;
                             } else {
                                 $kleur = !$datum_verstreken ? 'red' : $kleur;
                                 // als de huidige gebruiker geen bevoegdheid heeft, dan geen actie
-                                $wijzigbaar = !$verwerkt && $this->override();
+                                $wijzigbaar = (!$verwerkt && $this->override()) || is_super_admin();
                                 $verwijderbaar = !$verwerkt && $this->override();
                                 $gebruiker_id = $reservering->gebruiker_id;
                             }

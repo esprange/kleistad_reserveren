@@ -93,7 +93,7 @@
         var i;
         var sum = 0;
         for (i = 1; i < stoker_percs.length; i++) {
-            if (stoker_ids[i].value == '') {
+            if (stoker_ids[i].value == '0') {
                 stoker_percs[i].value = 0;
             }
             sum += +stoker_percs[i].value;
