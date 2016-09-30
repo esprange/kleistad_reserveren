@@ -101,9 +101,10 @@
         if (sum > 100) {
             element.value = element.value - (sum - 100);
             sum = 100;
+        } else {
+            element.value = +element.value;
         }
         stoker_percs[0].value = 100 - sum;
-
     }
 
     function kleistad_falen(message) {
@@ -144,7 +145,7 @@
         var verdeling = {};
 
         for (var i = 0; i < stoker_ids.length; i++) {
-            verdeling[i] = {id: stoker_ids[i].value, perc: stoker_percs[i].value};
+            verdeling[i] = {id: +stoker_ids[i].value, perc: +stoker_percs[i].value};
         }
 
         $.ajax({

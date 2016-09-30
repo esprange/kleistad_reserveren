@@ -149,16 +149,6 @@ class Kleistad {
                 ) $charset_collate;"
             );
             update_option('kleistad-reserveren', self::VERSIE);
-            /*
-             * Conversie, alle oude reserveringen zijn gemeld en verwerkt
-             */
-//            $vandaag = date('Y-m-d');
-//            $wpdb->query("UPDATE {$wpdb->prefix}kleistad_reserveringen SET 
-//                    gemeld=1, 
-//                    verwerkt=1,
-//                    verdeling=concat('{\"0\":{\"id\":\"',gebruiker_id,'\",\"perc\":\"100\"},\"1\":{\"id\":\"0\",\"perc\":\"0\"},\"2\":{\"id\":\"0\",\"perc\":\"0\"},\"3\":{\"id\":\"0\",\"perc\":\"0\"},\"4\":{\"id\":\"0\",\"perc\":\"0\"}}')
-//                WHERE
-//                   str_to_date(concat(jaar,'-',maand,'-',dag),'%Y-%m-%d') < '$vandaag'");            
         }
     }
 
@@ -169,7 +159,7 @@ class Kleistad {
         self::database();
 
         if (!wp_next_scheduled('kleistad_kosten')) {
-            wp_schedule_event(strtotime('midnight'), 'hourly', 'kleistad_kosten');
+            wp_schedule_event(strtotime('midnight'), 'daily', 'kleistad_kosten');
         }
 
         /*
@@ -934,36 +924,10 @@ class Kleistad {
      * Scheduled job, update elke nacht de saldi
      */
     public function update_ovenkosten() {
-        /*
-         * allereerst de notificaties uitsturen. 
-         */
         $this->log_saldo("verwerking stookkosten gestart.");
         global $wpdb;
         $vandaag = date('Y-m-d');
-        $notificaties = $wpdb->get_results(
-            "SELECT RE.id AS id, oven_id, naam, kosten, gebruiker_id, dag, maand, jaar FROM
-                {$wpdb->prefix}kleistad_reserveringen RE,
-                {$wpdb->prefix}kleistad_ovens OV
-            WHERE RE.oven_id = OV.id AND gemeld = '0' AND str_to_date(concat(jaar,'-',maand,'-',dag),'%Y-%m-%d') < '$vandaag'");
-        foreach ($notificaties as $notificatie) {
-            // send reminder email
-            $datum = strftime('%d-%m-%Y', mktime(0, 0, 0, $notificatie->maand, $notificatie->dag, $notificatie->jaar));
-            $datum_verwerking = strftime('%d-%m-%Y', mktime(0, 0, 0, $notificatie->maand, $notificatie->dag + self::TERMIJN, $notificatie->jaar));
-            $datum_deadline = strftime('%d-%m-%Y', mktime(0, 0, 0, $notificatie->maand, $notificatie->dag + self::TERMIJN - 1, $notificatie->jaar));
-            $gebruiker = get_userdata($notificatie->gebruiker_id);
 
-            // als er een speciale regeling / tarief is afgesproken, dan geldt dat tarief
-            $regeling = $this->lees_regeling($notificatie->gebruiker_id, $notificatie->oven_id);
-            $kosten = number_format(( $regeling < 0 ) ? $notificatie->kosten : $regeling, 2, ',', '');
-
-            $wpdb->update("{$wpdb->prefix}kleistad_reserveringen", ['gemeld' => 1], ['id' => $notificatie->id], ['%d'], ['%d']);
-
-            $to = "$gebruiker->first_name $gebruiker->last_name <$gebruiker->user_email>";
-            $message = "<p>Beste $gebruiker->first_name,</p><br />
-                 <p>je hebt nu de $notificatie->naam in gebruik. Er zal op <strong>$datum_verwerking</strong> maximaal <strong>&euro; $kosten</strong> van je stooksaldo worden afgeschreven.</p>
-                 <p>Controleer voor deze datum of je de verdeling van de stookkosten onder de eventuele medestokers hebt doorgegeven in de <a href=\"http://www.kleistad.nl/leden/oven-reserveren/\">reservering</a> van de oven. Je kunt nog wijzigingen aanbrengen tot <strong>$datum_deadline</strong>. Daarna kan er niets meer gewijzigd worden!</p>";
-            $this->mail($to, "Kleistad oven gebruik op $datum", $message);
-        }
         /*
          * saldering transacties uitvoeren
          */
@@ -1004,105 +968,43 @@ class Kleistad {
 
                 $to = "$stoker->first_name $stoker->last_name <$stoker->user_email>";
                 $message = "<p>Beste $stoker->first_name,</p><br />
-                    <p>je stooksaldo is verminderd met &euro; $bedrag en is nu <strong>&euro; $saldo</strong>.</p>
-                    <p>$gebruiker->first_name $gebruiker->last_name heeft aangegeven dat jij {$stookdeel['perc']} % gebruikt hebt van de stook op $datum in de $transactie->naam.</p>
+                    <p>je stooksaldo is verminderd met &euro; $bedrag en is nu <strong>&euro; $saldo</strong>.</p>";
+                $message .= $gebruiker->ID == $stoker->ID ? "<p>Je hebt " : "<p>$gebruiker->first_name $gebruiker->last_name heeft "; 
+                $message .= "aangegeven dat jij {$stookdeel['perc']} % gebruikt hebt van de stook op $datum in de $transactie->naam.</p>
                     <p>Je kunt op de website van Kleistad wanneer je ingelogd bent je persoonlijke <a href=\"http://www.kleistad.nl/leden/gegevens-stook/\">stookoverzicht</a> bekijken.</p>";
                 $this->mail($to, 'Kleistad kosten zijn verwerkt op het stooksaldo', $message);
             }
         }
+        /*
+         * de notificaties uitsturen voor stook die nog niet verwerkt is. 
+         */
+        $notificaties = $wpdb->get_results(
+            "SELECT RE.id AS id, oven_id, naam, kosten, gebruiker_id, dag, maand, jaar FROM
+                {$wpdb->prefix}kleistad_reserveringen RE,
+                {$wpdb->prefix}kleistad_ovens OV
+            WHERE RE.oven_id = OV.id AND gemeld = '0' AND verwerkt = '0' AND str_to_date(concat(jaar,'-',maand,'-',dag),'%Y-%m-%d') < '$vandaag'");
+        foreach ($notificaties as $notificatie) {
+            // send reminder email
+            $datum = strftime('%d-%m-%Y', mktime(0, 0, 0, $notificatie->maand, $notificatie->dag, $notificatie->jaar));
+            $datum_verwerking = strftime('%d-%m-%Y', mktime(0, 0, 0, $notificatie->maand, $notificatie->dag + self::TERMIJN, $notificatie->jaar));
+            $datum_deadline = strftime('%d-%m-%Y', mktime(0, 0, 0, $notificatie->maand, $notificatie->dag + self::TERMIJN - 1, $notificatie->jaar));
+            $gebruiker = get_userdata($notificatie->gebruiker_id);
+
+            // als er een speciale regeling / tarief is afgesproken, dan geldt dat tarief
+            $regeling = $this->lees_regeling($notificatie->gebruiker_id, $notificatie->oven_id);
+            $kosten = number_format(( $regeling < 0 ) ? $notificatie->kosten : $regeling, 2, ',', '');
+
+            $wpdb->update("{$wpdb->prefix}kleistad_reserveringen", ['gemeld' => 1], ['id' => $notificatie->id], ['%d'], ['%d']);
+
+            $to = "$gebruiker->first_name $gebruiker->last_name <$gebruiker->user_email>";
+            $message = "<p>Beste $gebruiker->first_name,</p><br />
+                 <p>je hebt nu de $notificatie->naam in gebruik. Er zal op <strong>$datum_verwerking</strong> maximaal <strong>&euro; $kosten</strong> van je stooksaldo worden afgeschreven.</p>
+                 <p>Controleer voor deze datum of je de verdeling van de stookkosten onder de eventuele medestokers hebt doorgegeven in de <a href=\"http://www.kleistad.nl/leden/oven-reserveren/\">reservering</a> van de oven. Je kunt nog wijzigingen aanbrengen tot <strong>$datum_deadline</strong>. Daarna kan er niets meer gewijzigd worden!</p>";
+            $this->mail($to, "Kleistad oven gebruik op $datum", $message);
+        }
         $this->log_saldo("verwerking stookkosten gereed.");
     }
 
-    /**
-     * Importeer verdeling
-     * @param string $bestand
-     * @param bool $importeren
-     */
-    /*
-    public function import($bestand, $importeren) {
-        if ($bestand == '') {
-            echo "<p style=\"color:red\" ><strong>geen geldige bestandsnaam : '$bestand'</strong></p>";
-            return;
-        }
-        $upload_dir = wp_upload_dir();
-        $file = fopen($upload_dir['basedir'] . "/$bestand", 'r');
-        if (!$file) {
-            echo "<p style=\"color:red\" ><strong>bestand '$bestand' niet gevonden</strong></p>";
-            return;
-        }
-
-        while (!feof($file)) {
-            $fields = (fgetcsv($file, 0, ',', '"'));
-            $datum = date_parse_from_format('d-m-Y', $fields[0]);
-            $dag = $datum['day'];
-            $maand = $datum['month'];
-            $jaar = $datum['year'];
-
-            $oven_id = intval($fields[1]);
-            $soortstook = substr(ucwords($fields[2]), 0, 12);
-            $temperatuur = intval($fields[3]) == 0 ? null : intval($fields[3]);
-            $programma = intval($fields[4]) == 0 ? null : intval($fields[4]);
-
-            $foute_gebruiker = '';
-            for ($i=5; $i<14; $i=$i+2) {
-                if (intval($fields[$i])>0 and !get_userdata(intval($fields[$i]))) {
-                    $foute_gebruiker = $fields[$i];
-                }
-            }
-            $som = 0;
-            for ($i=6; $i<15; $i=$i+2) {
-                $som += intval($fields[$i]);
-            }
-            
-            $verdeling_array = [
-                '0' => ['id' => $fields[5], 'perc' => $fields[6]],
-                '1' => ['id' => $fields[7], 'perc' => $fields[8]],
-                '2' => ['id' => $fields[9], 'perc' => $fields[10]],
-                '3' => ['id' => $fields[11], 'perc' => $fields[12]],
-                '4' => ['id' => $fields[13], 'perc' => $fields[14]]];
-            $verdeling = json_encode($verdeling_array, JSON_FORCE_OBJECT);
-            echo "<p>te importeren:</p>
-            <ul>
-                <li>dag = $dag</li>
-                <li>maand = $maand</li>
-                <li>jaar = $jaar</li>
-                <li>oven_id = $oven_id</li>
-                <li>soortstook = $soortstook</li>
-                <li>temperatuur = $temperatuur</li>
-                <li>programma = $programma</li>
-                <li>verdeling = $verdeling</li>
-            </ul>";
-            if ($foute_gebruiker != '') {
-                echo "<p style=\"color:red\" ><strong>gebruiker $foute_gebruiker is niet gevonden de database</strong><p>";
-                continue;
-            }
-            if ($som != 100) {
-                echo "<p style=\"color:red\" ><strong>de som van de percentages is ongelijk aan 100<strong><p>";
-                continue;
-            }
-            global $wpdb;
-            $id = $wpdb->get_var("SELECT id FROM {$wpdb->prefix}kleistad_reserveringen WHERE
-                oven_id = '$oven_id' AND dag = '$dag' AND maand = '$maand' and jaar = '$jaar'");
-            if (is_null($id)) {
-                echo '<p style="color:red" ><strong>deze reservering is niet gevonden in de database</strong><p>';
-                continue;
-            } 
-            if ($importeren) {
-                echo '<p style="color:green" ><strong>gevonden, nu updaten ...</strong></p>';
-                $wpdb->update("{$wpdb->prefix}kleistad_reserveringen", [
-                    'temperatuur' => $temperatuur,
-                    'soortstook' => $soortstook,
-                    'programma' => $programma,
-                    'verdeling' => $verdeling,], ['id' => $id]);
-            } else {
-                echo '<p style="color:green" ><strong>gevonden, test ok</strong></p>';
-            }
-        }
-
-        fclose($file);
-    }
-    */
-    
     /**
      * Callback handler (wordt vanuit browser aangeroepen) voor het tonen van de reserveringen
      * 
@@ -1161,7 +1063,7 @@ class Kleistad {
                     $gereserveerd = false;
                     $verwerkt = false;
                     $datum_verstreken = $datum < time();
-                    $wijzigbaar = !$datum_verstreken;
+                    $wijzigbaar = !$datum_verstreken || is_super_admin();
                     $verwijderbaar = false;
                     $wie = $wijzigbaar ? '-beschikbaar-' : '';
                     $gebruiker_id = $huidige_gebruiker_id;
@@ -1210,7 +1112,7 @@ class Kleistad {
                             'verwijderbaar' => $verwijderbaar,
                             'gereserveerd' => $gereserveerd,];
                         $html .= "
-                    <th><a class=\"thickbox kleistad_box\"  href=\"#TB_inline?width=380&height=500&inlineId=kleistad_oven$oven\" rel=\"bookmark\"
+                    <th><a class=\"thickbox kleistad_box\"  href=\"#TB_inline?width=340&height=500&inlineId=kleistad_oven$oven\" rel=\"bookmark\"
                         data-form='" . json_encode($form_data) . "'
                         id=\"kleistad_$dagteller\">$dagteller $dagnamen[$weekdag] </a></th>";
                     } else {
