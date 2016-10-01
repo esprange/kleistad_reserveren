@@ -6,9 +6,6 @@ Description: stylesheet functions voor kleistad_reserveren plugin
   License: GPL2
 */
 
-div.kleistad_form_popup {
-    display: none;
-}
 table.kleistad_form {
     vertical-align: middle;
     border-collapse: collapse;
@@ -35,7 +32,12 @@ table.kleistad_form select {
 }
 table.kleistad_form button {
     font-size: small;
-    height: 2.5em;
+    height: 3em;
+    padding: 0px;
+    width:100%;
+}
+table.kleistad_form>tfoot>tr:last-child th {
+    padding: 2px;
 }
 table.kleistad_form option, select, input {
     font-size: small;

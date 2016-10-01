@@ -245,12 +245,14 @@ class Kleistad {
      */
     public function register_scripts() {
         wp_register_script(
-            'kleistad-js', plugins_url('../js/kleistad.js', __FILE__), ['jquery'], self::VERSIE, true
+            'kleistad-js', plugins_url('../js/kleistad.js', __FILE__), ['jquery', 'jquery-ui-dialog'], self::VERSIE, true
         );
         wp_register_style(
             'kleistad-css', plugins_url('../css/kleistad.css', __FILE__), [], self::VERSIE
         );
-
+        wp_register_style(
+            'jquery-ui-dialog', '//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css');
+        
         wp_localize_script(
             'kleistad-js', 'kleistad_data', [
             'nonce' => wp_create_nonce('wp_rest'),
@@ -424,22 +426,6 @@ class Kleistad {
                 </table>
                 <p class="submit"><button type="submit" class="button-primary" name="kleistad_saldo_verzonden" id="kleistad_saldo_verzonden">Verzenden</button></p>
             </form>
-<!--            <hr />
-            <h2>Importeren</h2> 
-            <form action="< ?php echo get_permalink() ? >" method="POST" enctype="multipart/form-data" encoding="multipart/form-data" >
-                <table class="form-table">
-                    <tbody>
-                        <tr>
-                            <th scope="row"><label for="kleistad_import_bestand" >Bestand</label></th>
-                            <td><input type="file" name="kleistad_import_bestand" id="kleistad_import_bestand" /></td>
-                            <th scope="row"><label for="kleistad_importeren" >Testen</label></th>
-                            <td><input type="checkbox" name="kleistad_importeren" id="kleistad_importeren" value="false" checked /></td>
-                        </tr>
-                    </tbody>
-                </table>
-                <p class="submit"><button type="submit" class="button-primary" name="kleistad_import_verzonden" id="kleistad_import_verzonden">Verzenden</button></p>
-            </form>-->
-
         </div>
         <?php
     }
@@ -813,7 +799,7 @@ class Kleistad {
         }
         wp_enqueue_script('kleistad-js');
         wp_enqueue_style('kleistad-css');
-        add_thickbox();
+        wp_enqueue_style('jquery-ui-dialog');
         $oven = 0;
 
         extract(shortcode_atts(['oven' => 'niet ingevuld'], $atts, 'kleistad'));
@@ -831,7 +817,7 @@ class Kleistad {
                     data-oven=\"$oven\" data-maand=\"" . date('n') . "\" data-jaar=\"" . date('Y') . "\" >
                     <tr><th>de reserveringen worden opgehaald...</th></tr>
                 </table>
-                <div id =\"kleistad_oven$oven\" class=\"thickbox kleistad_form_popup\">
+                <div id =\"kleistad_oven$oven\" class=\"kleistad_form_popup\">
                     <form id=\"kleistad_form$oven\" action=\"#\" method=\"post\">
                     <table class=\"kleistad_form\">
                     <thead>
@@ -908,7 +894,7 @@ class Kleistad {
                     <tr>
                         <th><button type=\"button\" id=\"kleistad_muteer$oven\" class=\"kleistad_muteer\" data-oven=\"$oven\" >Wijzig</button></th>
                         <th><button type=\"button\" id=\"kleistad_verwijder$oven\" class=\"kleistad_verwijder\" data-oven=\"$oven\" >Verwijder</button></th>
-                        <th><button type=\"button\" onclick=\"self.parent.tb_remove();return false\" >Sluit</button></th>
+                        <th><button type=\"button\" id=\"kleistad_sluit$oven\" class=\"kleistad_sluit\" data-oven=\"$oven\" >Sluit</button></th>
                     </tr>
                 </tfoot>
             </table>
@@ -1112,9 +1098,7 @@ class Kleistad {
                             'verwijderbaar' => $verwijderbaar,
                             'gereserveerd' => $gereserveerd,];
                         $html .= "
-                    <th><a class=\"thickbox kleistad_box\"  href=\"#TB_inline?width=340&height=500&inlineId=kleistad_oven$oven\" rel=\"bookmark\"
-                        data-form='" . json_encode($form_data) . "'
-                        id=\"kleistad_$dagteller\">$dagteller $dagnamen[$weekdag] </a></th>";
+                    <th><a class=\"kleistad_box\"  data-form='" . json_encode($form_data) . "' id=\"kleistad_$dagteller\">$dagteller $dagnamen[$weekdag] </a></th>";
                     } else {
                         $html .= "
                     <th>$dagteller $dagnamen[$weekdag]</th>";
