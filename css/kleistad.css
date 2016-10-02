@@ -7,120 +7,126 @@ Description: stylesheet functions voor kleistad_reserveren plugin
 */
 
 div.kleistad_form_popup {
-    display: none;
+  display: none;
 }
 table.kleistad_form {
-    vertical-align: middle;
-    border-collapse: collapse;
-    border-spacing: 0;
-    border-style: none;
-    border: none;
-    font-size: small;
+  vertical-align: middle;
+  border-collapse: collapse;
+  border-spacing: 0;
+  border-style: none;
+  border: none;
+  font-size: small;
+  padding: 0px;
 }
 table.kleistad_form tr {
-    margin: 0;
+  margin: 0;
 }
 table.kleistad_form td {
-    border-style: none;
+  border-style: none;
 }
 table.kleistad_form th {
-    border-style: none;
-    text-align: center;
+  border-style: none;
+  text-align: center;
+}
+table.kleistad_form>tfoot>tr:last-child th { 
+  padding: 2px; 
 }
 table.kleistad_form input[type=text], select {
-    width: 100%;
+  width: 100%;
 }
 table.kleistad_form select {
-    -webkit-appearance: menulist-button;
+  -webkit-appearance: menulist-button;
 }
 table.kleistad_form button {
-    font-size: small;
-    height: 2.5em;
+  font-size: small;
+  height: 2.5em;
+  width: 100%;
+  padding: 0px;
 }
 table.kleistad_form option, select, input {
-    font-size: small;
-    height: 1.7em;
+  font-size: small;
+  height: 1.7em;
 }
 table.kleistad_form input[type=number] {
-    width: 5em;
+  width: 5em;
 }
 table.kleistad_form input[type=submit] {
-    font-size: small;
-    height: 2.5em;
+  font-size: small;
+  height: 2.5em;
 }
 table.kleistad_reserveringen {
-    width: 100%;
-    table-layout: auto;
-    vertical-align: middle;
-    border-collapse: collapse;
-    border-spacing: 0;
-    border-style: none;
+  width: 100%;
+  table-layout: auto;
+  vertical-align: middle;
+  border-collapse: collapse;
+  border-spacing: 0;
+  border-style: none;
 }
 table.kleistad_reserveringen th {
-    border-style:solid;
-    border-width: 0px;
-    border-top-width: 1px;
-    border-bottom-width: 1px;
-    overflow: hidden;
+  border-style:solid;
+  border-width: 0px;
+  border-top-width: 1px;
+  border-bottom-width: 1px;
+  overflow: hidden;
 }
 table.kleistad_reserveringen th[colspan] {
-    text-align: center;
-    vertical-align: middle;
+  text-align: center;
+  vertical-align: middle;
 }
 table.kleistad_reserveringen td {
-    border-style:solid;
-    border-width: 0px;
-    border-top-width: 1px;
-    border-bottom-width: 1px;
-    overflow: hidden;
+  border-style:solid;
+  border-width: 0px;
+  border-top-width: 1px;
+  border-bottom-width: 1px;
+  overflow: hidden;
 }
 table.kleistad_reserveringen td:nth-child(4n) {
-    text-align: right;
+  text-align: right;
 }
 table.kleistad_reserveringen th[data-align='right'] {
-    text-align: right;
+  text-align: right;
 }
 table.kleistad_reserveringen a {
-    color: black;
-    width: 100%;
-    text-decoration: none;
+  color: black;
+  width: 100%;
+  text-decoration: none;
 }
 table.kleistad_reserveringen a:hover {
-    color: white;
-    width: 100%;
-    text-decoration: none;
+  color: white;
+  width: 100%;
+  text-decoration: none;
 }
 table.kleistad_rapport {
-    table-layout: auto;
+  table-layout: auto;
 }
 table.kleistad_rapport th {
-    font-size: small;
-    font-weight: bold;
+  font-size: small;
+  font-weight: bold;
 }
 table.kleistad_rapport td {
-    font-size: small;
+  font-size: small;
 }
 table.kleistad_rapport thead {
-    background-color: #F2F2F2;
+  background-color: #F2F2F2;
 }
 table.kleistad_rapport tr:nth-child(even) {
-    background-color: #F2F2F2;
+  background-color: #F2F2F2;
 }
 
 @media screen and (max-width: 700px) {
-    table.kleistad_reserveringen th {
-        font-size: x-small;
-    }
-    table.kleistad_reserveringen td {
-        font-size: x-small;
-    }
-    table.kleistad_reserveringen button {
-        font-size: x-small;
-    }
-    table.kleistad_rapport th {
-        font-size: x-small;
-    }
-    table.kleistad_rapport td {
-        font-size: x-small;
-    }
+  table.kleistad_reserveringen th {
+    font-size: x-small;
+  }
+  table.kleistad_reserveringen td {
+    font-size: x-small;
+  }
+  table.kleistad_reserveringen button {
+    font-size: x-small;
+  }
+  table.kleistad_rapport th {
+    font-size: x-small;
+  }
+  table.kleistad_rapport td {
+    font-size: x-small;
+  }
 }
