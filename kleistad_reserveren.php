@@ -2,8 +2,8 @@
 /*
 Plugin Name: Kleistad reserveren
 Plugin URI: 
-Description: Een plugin voor het reserveren van de ovens en verwerken van de stook saldo
-Version: 2.0
+Description: Een plugin voor vereniging Kleistad. Reserveren van ovens, verwerken van stook saldo en cursus administratie
+Version: 3.0
 Author: Eric Sprangers
 Author URI: 
 License: GPL2

@@ -2,7 +2,7 @@
 /*
   Class: Kleistad
   Description: Basis klas voor kleistad_reserveren plugin
-  Version: 1.1
+  Version: 3.0
   Author: Eric Sprangers
   Author URI:
   License: GPL2
@@ -15,7 +15,7 @@
  *                  te voeren mits redactie bevoegdheid,
  *                  code optimalisatie van muteren functie
  * 2.0  12-09-2016  Toevoegen functionaliteit voor beheer stooksaldo (leden), tonen saldo overzicht (bestuur), verzenden stookbestand (bestuur)
- *
+ * 3.0  11-12-2016  Toevoegen functionaliteit voor cursus administratie
  */
 defined('ABSPATH') or die("No script kiddies please!");
 
@@ -46,12 +46,22 @@ class Kleistad {
   /**
    * Plugin-versie
    */
-  const VERSIE = 2;
+  const VERSIE = 3;
 
   /**
    * Aantal dagen tussen reserveer datum en saldo verwerkings datum
    */
   const TERMIJN = 4;
+
+  /**
+   * User meta variabele welke alle cursus inschrijvingen bevat
+   */
+  const INSCHRIJVINGEN = 'kleistad_cursus';
+
+  /**
+   * User meta variabele welke alle cursus inschrijvingen bevat
+   */
+  const CONTACTINFO = 'contactinfo';
 
   /**
    *
@@ -108,6 +118,11 @@ class Kleistad {
       add_shortcode('kleistad_saldo_overzicht', [$this, 'saldo_overzicht_handler']);
       add_shortcode('kleistad_stookbestand', [$this, 'stookbestand_handler']);
       add_shortcode('kleistad', [$this, 'reservering_handler']);
+
+      add_shortcode('kleistad_cursus_inschrijving', [$this, 'cursus_inschrijving_handler']);
+      add_shortcode('kleistad_cursus_beheer', [$this, 'cursus_beheer_handler']);
+      add_shortcode('kleistad_betalingen', [$this, 'betalingen_handler']);
+      add_shortcode('kleistad_registratie_overzicht', [$this, 'registratie_overzicht_handler']);
     }
   }
 
@@ -147,6 +162,24 @@ class Kleistad {
                 kosten numeric(10,2),
                 PRIMARY KEY  (id)
                 ) $charset_collate;"
+      );
+
+      dbDelta("CREATE TABLE {$wpdb->prefix}kleistad_cursussen (
+                id int(10) NOT NULL AUTO_INCREMENT, 
+                naam tinytext,
+                start_datum date,
+                eind_datum date,
+                start_tijd time,
+                eind_tijd time,
+                docent tinytext,
+                technieken tinytext,
+                vervallen tinyint(1) DEFAULT 0,
+                vol tinyint(1) DEFAULT 0,
+                techniekkeuze tinyint(1) DEFAULT 0,
+                inschrijfkosten numeric(10,2),
+                cursuskosten numeric(10,2),
+                PRIMARY KEY  (id)
+              ) $charset_collate;"
       );
       update_option('kleistad-reserveren', self::VERSIE);
     }
@@ -205,7 +238,7 @@ class Kleistad {
    */
   public function register_endpoints() {
     register_rest_route(
-        $this->url, '/reserveer', [
+            $this->url, '/reserveer', [
         'methods' => 'POST',
         'callback' => [$this, 'callback_muteren'],
         'args' => [
@@ -221,11 +254,11 @@ class Kleistad {
             'gebruiker_id' => ['required' => true],
         ],
         'permission_callback' => function() {
-      return is_user_logged_in();
-    }
+          return is_user_logged_in();
+        }
     ]);
     register_rest_route(
-        $this->url, '/show', [
+            $this->url, '/show', [
         'methods' => 'POST',
         'callback' => [$this, 'callback_show_reservering'],
         'args' => [
@@ -235,8 +268,8 @@ class Kleistad {
             'html' => ['required' => false]
         ],
         'permission_callback' => function() {
-      return is_user_logged_in();
-    }
+          return is_user_logged_in();
+        }
     ]);
   }
 
@@ -245,22 +278,45 @@ class Kleistad {
    */
   public function register_scripts() {
     wp_register_script(
-        'kleistad-js', plugins_url('../js/kleistad.js', __FILE__), ['jquery'], self::VERSIE, true
+      'kleistad-js', plugins_url('../js/kleistad.js', __FILE__), ['jquery'], self::VERSIE, true
+    );
+    wp_register_script(
+      'time-entry-plugin', plugins_url('../vendor/timeentry/jquery.plugin.js', __FILE__), ['jquery']
+    );
+    wp_register_script(
+      'time-entry', plugins_url('../vendor/timeentry/jquery.timeentry.js', __FILE__), ['jquery']
     );
     wp_register_style(
-        'kleistad-css', plugins_url('../css/kleistad.css', __FILE__), [], self::VERSIE
+      'kleistad-css', plugins_url('../css/kleistad.css', __FILE__)
     );
-
+    wp_register_style(
+      'jqueryui-css', "//code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css"
+    );
+    wp_register_style(
+      'time-entry', plugins_url('../vendor/timeentry/jquery.timeentry.css', __FILE__)
+    );
     wp_localize_script(
-        'kleistad-js', 'kleistad_data', [
+      'kleistad-js', 'kleistad_data', [
         'nonce' => wp_create_nonce('wp_rest'),
         'base_url' => rest_url($this->url),
         'success_message' => 'de reservering is geslaagd!',
-        'error_message' => 'het was niet mogelijk om de reservering uit te voeren'
-        ]
+        'error_message' => 'het was niet mogelijk om de reservering uit te voeren',
+      ]
     );
   }
 
+  private function enqueue_scripts() {
+    wp_enqueue_script('jquery-ui-dialog');
+    wp_enqueue_script('jquery-ui-tabs');
+    wp_enqueue_script('jquery-ui-tooltip');
+    wp_enqueue_script('time-entry-plugin');
+    wp_enqueue_script('time-entry');
+    wp_enqueue_script('kleistad-js');
+    wp_enqueue_style('kleistad-css');
+    wp_enqueue_style('jqueryui-css');
+    wp_enqueue_style('time-entry');
+  }
+  
   /**
    * 
    * admin instellingen scherm
@@ -269,152 +325,168 @@ class Kleistad {
     global $wpdb;
 
     if (!is_null(filter_input(INPUT_POST, 'kleistad_ovens_verzonden'))) {
-      $naam = filter_input(INPUT_POST, 'kleistad_oven_naam', FILTER_SANITIZE_SPECIAL_CHARS);
-      $tarief = str_replace(",", ".", filter_input(INPUT_POST, 'kleistad_oven_tarief'));
+      $naam = filter_input(INPUT_POST, 'kleistad_oven_naam', FILTER_SANITIZE_STRING);
+      $tarief = str_replace(",", ".", filter_input(INPUT_POST, 'kleistad_oven_tarief', SANITIZE_NUMBER_FLOAT));
       $wpdb->insert("{$wpdb->prefix}kleistad_ovens", ['naam' => $naam, 'kosten' => $tarief], ['%s', '%s']);
     }
 
     if (!is_null(filter_input(INPUT_POST, 'kleistad_regeling_verzonden'))) {
-      $gebruiker_id = filter_input(INPUT_POST, 'kleistad_regeling_gebruiker_id', FILTER_VALIDATE_INT);
-      $oven_id = filter_input(INPUT_POST, 'kleistad_regeling_id', FILTER_VALIDATE_INT);
-      $tarief = str_replace(",", ".", filter_input(INPUT_POST, 'kleistad_regeling_tarief', FILTER_SANITIZE_SPECIAL_CHARS));
+      $gebruiker_id = filter_input(INPUT_POST, 'kleistad_regeling_gebruiker_id', FILTER_SANITIZE_NUMBER_INT);
+      $oven_id = filter_input(INPUT_POST, 'kleistad_regeling_id', FILTER_SANITIZE_NUMBER_INT);
+      $tarief = str_replace(",", ".", filter_input(INPUT_POST, 'kleistad_regeling_tarief', FILTER_SANITIZE_STRING));
       $this->maak_regeling($gebruiker_id, $oven_id, $tarief);
     }
 
     if (!is_null(filter_input(INPUT_POST, 'kleistad_saldo_verzonden'))) {
-      $gebruiker_id = filter_input(INPUT_POST, 'kleistad_saldo_gebruiker_id', FILTER_VALIDATE_INT);
-      $saldo = str_replace(",", ".", filter_input(INPUT_POST, 'kleistad_saldo_wijzigen', FILTER_SANITIZE_SPECIAL_CHARS));
+      $gebruiker_id = filter_input(INPUT_POST, 'kleistad_saldo_gebruiker_id', FILTER_SANITIZE_NUMBER_INT);
+      $saldo = str_replace(",", ".", filter_input(INPUT_POST, 'kleistad_saldo_wijzigen', FILTER_SANITIZE_STRING));
       update_user_meta($gebruiker_id, 'stooksaldo', $saldo);
     }
     $ovens = $wpdb->get_results(
-        "SELECT * FROM {$wpdb->prefix}kleistad_ovens ORDER BY id");
+            "SELECT * FROM {$wpdb->prefix}kleistad_ovens ORDER BY id");
     $gebruikers = get_users(
-        ['fields' => ['id', 'display_name'], 'orderby' => ['nicename'],]);
+            ['fields' => ['id', 'display_name'], 'orderby' => ['nicename'],]);
     ?>
     <div class="wrap">
-      <h2>Regelingen</h2>
-      <table class="widefat">
-        <thead>
-          <tr>
-            <th class="manage-column column-naamregeling" id="naamregeling" scope="col">Naam</th>
-            <th class="manage-column column-idregeling" id="idregeling" scope="col">Oven id</th>
-            <th class="manage-column column-tariefregeling" id="tariefregeling" scope="col">Tarief</th></tr>
-        </thead>
-        <tbody>
-          <?php
-          foreach ($gebruikers as $gebruiker) {
-            $regelingen = $this->lees_regeling($gebruiker->id);
-            if ($regelingen < 0) {
-              continue;
-            }
-            foreach ($regelingen as $id => $regeling) {
-              ?>
-              <tr><td><?php echo $gebruiker->display_name ?></td><td><?php echo $id ?></td><td>&euro; <?php echo number_format($regeling, 2, ',', '') ?></td></tr>
-              <?php
-            }
-          }
-          ?>
-        </tbody>
-      </table>
-      <h3>Nieuwe regeling aanmaken of bestaande wijzigen</h3> 
-      <form action="<?php echo get_permalink() ?>" method="POST">
-        <table class="form-table">
-          <tbody>
-            <tr>
-              <th scope="row"><label for="kleistad_regeling_id">Oven id</label></th>
-              <td><input type="number" name="kleistad_regeling_id" id="kleistad_regeling_id" /></td>
-            </tr>
-            <tr>
-              <th scope="row"><label for="kleistad_regeling_gebruiker_id">Gebruiker</label></th>
-              <td><select name="kleistad_regeling_gebruiker_id" id="kleistad_regeling_gebruiker_id" >
-                  <?php foreach ($gebruikers as $gebruiker) : ?>
-                    <option value="<?php echo $gebruiker->id ?>" ><?php echo $gebruiker->display_name ?></option>
-                  <?php endforeach ?>
-                </select></td>
-            </tr>
-            <tr>
-              <th scope="row"><label for="kleistad_regeling_tarief">Tarief</label></th>
-              <td><input type="number" step="any" name="kleistad_regeling_tarief" id="kleistad_regeling_tarief" /></td>
-            </tr>
-          </tbody>
+        <h2>Regelingen</h2>
+        <table class="widefat">
+            <thead>
+                <tr>
+                    <th class="manage-column column-naamregeling" id="naamregeling" scope="col">Naam</th>
+                    <th class="manage-column column-idregeling" id="idregeling" scope="col">Oven id</th>
+                    <th class="manage-column column-tariefregeling" id="tariefregeling" scope="col">Tarief</th></tr>
+            </thead>
+            <tbody>
+                <?php
+                foreach ($gebruikers as $gebruiker) {
+                  $regelingen = $this->lees_regeling($gebruiker->id);
+                  if ($regelingen < 0) {
+                    continue;
+                  }
+                  foreach ($regelingen as $id => $regeling) {
+                    ?>
+                    <tr><td><?php echo $gebruiker->display_name ?></td><td><?php echo $id ?></td><td>&euro; <?php echo number_format($regeling, 2, ',', '') ?></td></tr>
+                    <?php
+                  }
+                }
+                ?>
+            </tbody>
         </table>
-        <p class="submit"><button type="submit" class="button-primary" name="kleistad_regeling_verzonden" id="kleistad_regeling_verzonden">Verzenden</button></p>
-      </form>
-      <hr />
-      <h2>Ovens</h2>
-      <table class="widefat">
-        <thead>
-          <tr>
-            <th class="manage-column column-idovens" id="idovens" scope="col">Oven id</th>
-            <th class="manage-column column-naamvens" id="naamovens" scope="col">Naam</th>
-            <th class="manage-column column-tariefovens" id="tariefovens">Tarief</th>
-          </tr>
-        </thead>
-        <tbody>
-          <?php foreach ($ovens as $oven) : ?>
-            <tr><td><?php echo $oven->id ?></td><td><?php echo $oven->naam ?></td><td>&euro; <?php echo number_format($oven->kosten, 2, ',', '') ?></td></tr>
-          <?php endforeach ?>
-        </tbody>
-      </table>
-      <h3>Nieuwe oven aanmaken</h3> 
-      <form class="kleistad_form" action="<?php echo get_permalink() ?>" method="POST" >
-        <table class="form-table">
-          <tbody>
-            <tr>
-              <th scope="row"><label for="kleistad_oven_naam" >Naam</label></th>
-              <td><input type="text" maxlength="30" name="kleistad_oven_naam" id="kleistad_oven_naam" /></td>
-            </tr>
-            <tr>
-              <th scope="row"><label for="kleistad_oven_tarief" >Tarief</label></th>
-              <td><input type="number" step="any" name="kleistad_oven_tarief" id="kleistad_oven_tarief" /></td>
-            </tr>
-          </tbody>
+        <h3>Nieuwe regeling aanmaken of bestaande wijzigen</h3> 
+        <form action="<?php echo get_permalink() ?>" method="POST">
+            <table class="form-table">
+                <tbody>
+                    <tr>
+                        <th scope="row"><label for="kleistad_regeling_id">Oven id</label></th>
+                        <td><input type="number" name="kleistad_regeling_id" id="kleistad_regeling_id" /></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="kleistad_regeling_gebruiker_id">Gebruiker</label></th>
+                        <td><select name="kleistad_regeling_gebruiker_id" id="kleistad_regeling_gebruiker_id" >
+                                <?php foreach ($gebruikers as $gebruiker) : ?>
+                                  <option value="<?php echo $gebruiker->id ?>" ><?php echo $gebruiker->display_name ?></option>
+                                <?php endforeach ?>
+                            </select></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="kleistad_regeling_tarief">Tarief</label></th>
+                        <td><input type="number" step="any" name="kleistad_regeling_tarief" id="kleistad_regeling_tarief" /></td>
+                    </tr>
+                </tbody>
+            </table>
+            <p class="submit"><button type="submit" class="button-primary" name="kleistad_regeling_verzonden" id="kleistad_regeling_verzonden">Verzenden</button></p>
+        </form>
+        <hr />
+        <h2>Ovens</h2>
+        <table class="widefat">
+            <thead>
+                <tr>
+                    <th class="manage-column column-idovens" id="idovens" scope="col">Oven id</th>
+                    <th class="manage-column column-naamvens" id="naamovens" scope="col">Naam</th>
+                    <th class="manage-column column-tariefovens" id="tariefovens">Tarief</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($ovens as $oven) : ?>
+                  <tr><td><?php echo $oven->id ?></td><td><?php echo $oven->naam ?></td><td>&euro; <?php echo number_format($oven->kosten, 2, ',', '') ?></td></tr>
+                <?php endforeach ?>
+            </tbody>
         </table>
-        <p class="submit"><button type="submit" class="button-primary" name="kleistad_ovens_verzonden" id="kleistad_ovens_verzonden">Verzenden</button></p>
-      </form>
-      <hr />
-      <h2>Saldo</h2>
-      <table class="widefat">
-        <thead>
-          <tr>
-            <th class="manage-column column-naamsaldo" id="naamsaldo" scope="col">Naam</th>
-            <th class="manage-column column-wijzigingsaldo" id="wijzigingsaldo" scope="col">Saldo</th></tr>
-        </thead>
-        <tbody>
-          <?php
-          foreach ($gebruikers as $gebruiker) {
-            $huidig = get_user_meta($gebruiker->id, 'stooksaldo', true);
-            if ($huidig <> '') {
-              ?>
-              <tr><td><?php echo $gebruiker->display_name ?></td><td>&euro; <?php echo number_format((float) $huidig, 2, ',', '') ?></td></tr>
-              <?php
-            }
-          }
-          ?>
-        </tbody>
-      </table>
-      <h3>Saldo wijzigen</h3> 
-      <form action="<?php echo get_permalink() ?>" method="POST">
-        <table class="form-table">
-          <tbody>
-            <tr>
-              <th scope="row"><label for="kleistad_saldo_gebruiker_id">Gebruiker</label></th>
-              <td><select name="kleistad_saldo_gebruiker_id" id="kleistad_saldo_gebruiker_id" >
-                  <?php foreach ($gebruikers as $gebruiker) : ?>
-                    <option value="<?php echo $gebruiker->id ?>" ><?php echo $gebruiker->display_name ?></option>
-                  <?php endforeach ?>
-                </select></td>
-            </tr>
-            <tr>
-              <th scope="row"><label for="kleistad_saldo_wijzigen">Tarief</label></th>
-              <td><input type="number" step="any" name="kleistad_saldo_wijzigen" id="kleistad_saldo_wijzigen" /></td>
-            </tr>
-          </tbody>
+        <h3>Nieuwe oven aanmaken</h3> 
+        <form class="kleistad_form" action="<?php echo get_permalink() ?>" method="POST" >
+            <table class="form-table">
+                <tbody>
+                    <tr>
+                        <th scope="row"><label for="kleistad_oven_naam" >Naam</label></th>
+                        <td><input type="text" maxlength="30" name="kleistad_oven_naam" id="kleistad_oven_naam" /></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="kleistad_oven_tarief" >Tarief</label></th>
+                        <td><input type="number" step="any" name="kleistad_oven_tarief" id="kleistad_oven_tarief" /></td>
+                    </tr>
+                </tbody>
+            </table>
+            <p class="submit"><button type="submit" class="button-primary" name="kleistad_ovens_verzonden" id="kleistad_ovens_verzonden">Verzenden</button></p>
+        </form>
+        <hr />
+        <h2>Saldo</h2>
+        <table class="widefat">
+            <thead>
+                <tr>
+                    <th class="manage-column column-naamsaldo" id="naamsaldo" scope="col">Naam</th>
+                    <th class="manage-column column-wijzigingsaldo" id="wijzigingsaldo" scope="col">Saldo</th></tr>
+            </thead>
+            <tbody>
+                <?php
+                foreach ($gebruikers as $gebruiker) {
+                  $huidig = get_user_meta($gebruiker->id, 'stooksaldo', true);
+                  if ($huidig <> '') {
+                    ?>
+                    <tr><td><?php echo $gebruiker->display_name ?></td><td>&euro; <?php echo number_format((float) $huidig, 2, ',', '') ?></td></tr>
+                    <?php
+                  }
+                }
+                ?>
+            </tbody>
         </table>
-        <p class="submit"><button type="submit" class="button-primary" name="kleistad_saldo_verzonden" id="kleistad_saldo_verzonden">Verzenden</button></p>
-      </form>
+        <h3>Saldo wijzigen</h3> 
+        <form action="<?php echo get_permalink() ?>" method="POST">
+            <table class="form-table">
+                <tbody>
+                    <tr>
+                        <th scope="row"><label for="kleistad_saldo_gebruiker_id">Gebruiker</label></th>
+                        <td><select name="kleistad_saldo_gebruiker_id" id="kleistad_saldo_gebruiker_id" >
+                                <?php foreach ($gebruikers as $gebruiker) : ?>
+                                  <option value="<?php echo $gebruiker->id ?>" ><?php echo $gebruiker->display_name ?></option>
+                                <?php endforeach ?>
+                            </select></td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="kleistad_saldo_wijzigen">Tarief</label></th>
+                        <td><input type="number" step="any" name="kleistad_saldo_wijzigen" id="kleistad_saldo_wijzigen" /></td>
+                    </tr>
+                </tbody>
+            </table>
+            <p class="submit"><button type="submit" class="button-primary" name="kleistad_saldo_verzonden" id="kleistad_saldo_verzonden">Verzenden</button></p>
+        </form>
     </div>
     <?php
+  }
+
+  /**
+   * helper functie, haalt email tekst vanuit berecht en vervangt alle placeholders
+   * @param string $slug
+   * @param array $args
+   */
+  private function compose_email($slug, $args) {
+    $page = get_page_by_title($slug, OBJECT);
+    if (!is_null($page)) {
+      $text = apply_filters('the_content', $page->post_content);
+      foreach ($args as $key => $value) {
+        $text = str_replace('[' . $key . ']', $value, $text);
+      }
+      return $text;
+    }
   }
 
   /**
@@ -424,13 +496,13 @@ class Kleistad {
    * @param string $message
    * @param string $attachment
    */
-  public function mail($to, $subject, $message, $copy = false, $attachment = '') {
+  private function mail($to, $subject, $message, $copy = false, $attachment = []) {
+    $headers[] = "Content-Type: text/html; charset=UTF-8";
     $headers[] = "From: Kleistad <$this->from_email>";
     $headers[] = "Bcc: $this->copy_email";
     if ($copy) {
       $headers[] = "Cc: $this->info_email";
     }
-    $headers[] = "Content-Type: text/html; charset=UTF-8";
 
     $htmlmessage = '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
             <html xmlns="http://www.w3.org/1999/xhtml">
@@ -449,7 +521,16 @@ class Kleistad {
             <td align="center" style="font-family:calibri; font-size:9pt" >Deze e-mail is automatisch gegenereerd en kan niet beantwoord worden.</td>
             </tr></table></body>
             </html>';
-    return wp_mail($to, $subject, $htmlmessage, $headers, $attachment);
+    $resultaat = wp_mail($to, $subject, $htmlmessage, $headers, $attachment);
+//   error_log(print_r('mail: ' . $resultaat, true));
+    return $resultaat;
+  }
+
+  /**
+   * helper functie, zorg dat nederlandse format gebruikt wordt voor datums etc.
+   */
+  private function setlocale_NL() {
+    setlocale(LC_TIME, 'NLD_nld', 'nl_NL', 'nld_nld', 'Dutch', 'nl_NL.utf8');
   }
 
   /**
@@ -557,7 +638,7 @@ class Kleistad {
 
     global $wpdb;
     $reserveringen = $wpdb->get_results(
-        "SELECT RE.id AS id, oven_id, naam, kosten, soortstook, temperatuur, programma,gebruiker_id, dag, maand, jaar, verdeling, verwerkt FROM
+            "SELECT RE.id AS id, oven_id, naam, kosten, soortstook, temperatuur, programma,gebruiker_id, dag, maand, jaar, verdeling, verwerkt FROM
                 {$wpdb->prefix}kleistad_reserveringen RE, {$wpdb->prefix}kleistad_ovens OV
             WHERE RE.oven_id = OV.id AND str_to_date(concat(jaar,'-',maand,'-',dag),'%Y-%m-%d') > '$datum_begin' 
                     ORDER BY jaar, maand, dag ASC");
@@ -593,7 +674,7 @@ class Kleistad {
                     </tr>";
       }
     }
-    $html .="</tbody>
+    $html .= "</tbody>
             </table>";
     return $html;
   }
@@ -609,9 +690,9 @@ class Kleistad {
     }
     wp_enqueue_style('kleistad-css');
     if (!is_null(filter_input(INPUT_POST, 'kleistad_stookbestand_verzonden'))) {
-      $vanaf_datum = date('Y-m-d', strtotime(filter_input(INPUT_POST, 'kleistad_vanaf_datum')));
-      $tot_datum = date('Y-m-d', strtotime(filter_input(INPUT_POST, 'kleistad_tot_datum')));
-      $gebruiker = get_userdata(filter_input(INPUT_POST, 'kleistad_gebruiker_id', FILTER_VALIDATE_INT));
+      $vanaf_datum = date('Y-m-d', strtotime(filter_input(INPUT_POST, 'kleistad_vanaf_datum', FILTER_SANITIZE_STRING)));
+      $tot_datum = date('Y-m-d', strtotime(filter_input(INPUT_POST, 'kleistad_tot_datum', FILTER_SANITIZE_STRING)));
+      $gebruiker = get_userdata(filter_input(INPUT_POST, 'kleistad_gebruiker_id', FILTER_SANITIZE_NUMBER_INT));
 
       $upload_dir = wp_upload_dir();
       $bijlage = $upload_dir['basedir'] . '/stookbestand_' . date('Y_m_d') . '.csv';
@@ -619,7 +700,7 @@ class Kleistad {
 
       global $wpdb;
       $stoken = $wpdb->get_results(
-          "SELECT RE.id AS id, oven_id, naam, kosten, soortstook, temperatuur, programma,gebruiker_id, dag, maand, jaar, verdeling, verwerkt FROM
+              "SELECT RE.id AS id, oven_id, naam, kosten, soortstook, temperatuur, programma,gebruiker_id, dag, maand, jaar, verdeling, verwerkt FROM
                     {$wpdb->prefix}kleistad_reserveringen RE, {$wpdb->prefix}kleistad_ovens OV
                 WHERE RE.oven_id = OV.id AND str_to_date(concat(jaar,'-',maand,'-',dag),'%Y-%m-%d') BETWEEN '$vanaf_datum' AND '$tot_datum'
                         ORDER BY jaar, maand, dag ASC");
@@ -686,7 +767,7 @@ class Kleistad {
 
       $to = "$gebruiker->first_name $gebruiker->last_name <$gebruiker->user_email>";
       $message = "<p>Bijgaand het bestand in .CSV formaat met alle transacties tussen $vanaf_datum en $tot_datum.</p>";
-      $attachments = [ $bijlage];
+      $attachments = [$bijlage];
       if ($this->mail($to, "Kleistad stookbestand $vanaf_datum - $tot_datum", $message, false, $attachments)) {
         $html = '<div><p>Het bestand is per email verzonden.</p></div>';
       } else {
@@ -717,16 +798,16 @@ class Kleistad {
     }
     wp_enqueue_style('kleistad-css');
     if (!is_null(filter_input(INPUT_POST, 'kleistad_gebruiker_id'))) {
-      $gebruiker_id = filter_input(INPUT_POST, 'kleistad_gebruiker_id', FILTER_VALIDATE_INT);
+      $gebruiker_id = filter_input(INPUT_POST, 'kleistad_gebruiker_id', FILTER_SANITIZE_NUMBER_INT);
       $saldo = number_format((float) get_user_meta($gebruiker_id, 'stooksaldo', true), 2, ',', '');
     }
     /*
      * Het onderstaande moet voorkomen dat iemand door een pagina refresh opnieuw melding maakt van een saldo storting
      */
     if (!is_null(filter_input(INPUT_POST, 'kleistad_saldo_verzonden')) && wp_verify_nonce(filter_input(INPUT_POST, '_wpnonce'), 'kleistad_saldo' . $gebruiker_id . $saldo)) {
-      $via = filter_input(INPUT_POST, 'kleistad_via', FILTER_SANITIZE_SPECIAL_CHARS);
-      $bedrag = filter_input(INPUT_POST, 'kleistad_bedrag', FILTER_VALIDATE_INT);
-      $datum = strftime('%d-%m-%Y', strtotime(filter_input(INPUT_POST, 'kleistad_datum')));
+      $via = filter_input(INPUT_POST, 'kleistad_via', FILTER_SANITIZE_STRING);
+      $bedrag = filter_input(INPUT_POST, 'kleistad_bedrag', FILTER_SANITIZE_NUMBER_FLOAT);
+      $datum = strftime('%d-%m-%Y', strtotime(filter_input(INPUT_POST, 'kleistad_datum', FILTER_SANITIZE_STRING)));
       $gebruiker = get_userdata($gebruiker_id);
 
       $to = "$gebruiker->first_name $gebruiker->last_name <$gebruiker->user_email>";
@@ -783,8 +864,10 @@ class Kleistad {
     if (!$this->reserveer()) {
       return '';
     }
-    wp_enqueue_script('kleistad-js');
-    wp_enqueue_style('kleistad-css');
+    $this->enqueue_scripts();
+//    ('jquery-ui-tooltip');
+//    wp_enqueue_script('kleistad-js');
+//    wp_enqueue_style('kleistad-css');
     add_thickbox();
     $oven = 0;
 
@@ -893,6 +976,693 @@ class Kleistad {
   }
 
   /**
+   * help functie, valideer en bewaar een gebruiker registratie.
+   * 
+   * @return string of WP_Error object
+   */
+  private function registreer_gebruiker() {
+    // aanmelding voornaam, achternaam, emailadres. voornaam+volgnummer wordt gebruikersnaam
+    $error = new WP_Error();
+    $input = filter_input_array(INPUT_POST, [
+        'emailadres' => FILTER_SANITIZE_EMAIL,
+        'voornaam' => FILTER_SANITIZE_STRING,
+        'achternaam' => FILTER_SANITIZE_STRING,]);
+
+    $contactinfo = filter_input_array(INPUT_POST, [
+        'straat' => FILTER_SANITIZE_STRING,
+        'pcode' => FILTER_SANITIZE_STRING,
+        'huisnr' => FILTER_SANITIZE_STRING,
+        'plaats' => FILTER_SANITIZE_STRING,
+        'telnr' => FILTER_SANITIZE_STRING,
+    ]);
+    if (!$input['emailadres']) {
+      $error->add('verplicht', 'Een E-mail adres is verplicht');
+    }
+    if (!$input['voornaam']) {
+      $error->add('verplicht', 'Een voornaam is verplicht');
+    }
+    if (!$input['achternaam']) {
+      $error->add('verplicht', 'Een achternaam is verplicht');
+    }
+    if (!empty($error->get_error_codes())) {
+      return $error;
+    }
+    $gebruiker_id = email_exists($input['emailadres']);
+    if ($gebruiker_id) {
+      $gebruiker_info = get_userdata($gebruiker_id);
+      if (!empty($gebruiker_info->roles) or (is_array($gebruiker_info->roles) and (count($gebruiker_info->roles) > 0 ) ) ) {
+        $error->add('account_aanwezig', 'Dit emailadres is al geregistreerd. U moet inloggen om een cursus aan te vragen');
+        return $error;
+      }
+    } else {
+      $uniek = '';
+      $naam = sanitize_user($input['voornaam']);
+      while (username_exists($naam . $uniek)) {
+        $uniek = intval($uniek) + 1;
+      }
+      $paswoord = wp_generate_password(12, true);
+      $gebruiker_id = wp_create_user($naam . $uniek, $paswoord, $input['emailadres']);
+    }
+    wp_update_user(['ID' => $gebruiker_id, 'first_name' => $input['voornaam'], 'last_name' => $input['achternaam'],
+        'display_name' => $input['voornaam'] . ' ' . $input['achternaam'], 'role' => '']);
+    update_user_meta($gebruiker_id, self::CONTACTINFO, $contactinfo);
+    return $gebruiker_id;
+  }
+
+  /**
+   * help functie registreer de cursist als deze niet ingelogd is en registreer de cursus keuze
+   * 
+   * @return true of wp_error object
+   */
+  private function registreer_cursus_inschrijving() {
+    global $wpdb;
+    $error = new WP_Error();
+    $input = filter_input_array(INPUT_POST, [
+        '_wpnonce' => FILTER_DEFAULT,
+        'cursus_id' => FILTER_SANITIZE_STRING,
+        'technieken' => ['filter' => FILTER_SANITIZE_STRING, 'flags' => FILTER_FORCE_ARRAY],
+        'opmerking' => FILTER_SANITIZE_STRING,
+    ]);
+
+    if (wp_verify_nonce($input['_wpnonce'], 'kleistad_cursus_inschrijving')) {
+      if (!is_user_logged_in()) {
+        $resultaat = $this->registreer_gebruiker();
+        if (is_wp_error($resultaat)) {
+          return $resultaat;
+        } else {
+          $gebruiker_id = $resultaat;
+        }
+      } else {
+        $gebruiker_id = get_current_user_id();
+      }
+      if (is_null($input['cursus_id'])) {
+        $error->add('verplicht', 'Er is nog geen cursus gekozen');
+        return $error;
+      } else {
+        $cursus_id = $input['cursus_id'];
+      }
+
+      $cursus = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}kleistad_cursussen WHERE id=" . $input['cursus_id']);
+      if (is_null($cursus)) {
+        $error->add('onbekend', 'De gekozen cursus is onbekend. Misschien is er iets fout gegaan ?');
+        return $error;
+      }
+
+      $code = 'C' . $cursus_id . '-' . $gebruiker_id . '-' . strftime('%y%m%d', strtotime($cursus->start_datum));
+      $nieuwe_inschrijving = ['code' => $code, 'datum' => date('d-m-Y'), 'technieken' => $input['technieken'],
+          'i_betaald' => 0, 'c_betaald' => 0, 'ingedeeld' => 0, 'bericht' => 0, 'opmerking' => $input['opmerking']];
+      $inschrijvingen = get_user_meta($gebruiker_id, self::INSCHRIJVINGEN, true);
+      if (is_array($inschrijvingen) AND array_key_exists($cursus_id, $inschrijvingen)) {
+        if ($inschrijvingen[$cursus_id]['ingedeeld']) {
+          $error->add('ingedeeld', 'Je bent al ingedeeld op deze cursus');
+          return $error;
+        }
+        $code = $inschrijvingen[$cursus_id]['code'];
+        $inschrijvingen[$cursus_id]['technieksn'] = $input['technieken'];
+        $inschrijvingen[$cursus_id]['opmerking'] = $input['opmerking'];
+      } else {
+        $inschrijvingen[$cursus_id] = $nieuwe_inschrijving;
+      }
+      update_user_meta($gebruiker_id, self::INSCHRIJVINGEN, $inschrijvingen);
+
+      $gebruiker = get_userdata($gebruiker_id);
+      $to = "$gebruiker->first_name $gebruiker->last_name <$gebruiker->user_email>";
+      $technieken = $inschrijvingen[$cursus_id]['technieken'];
+      $message = $this->compose_email('kleistad_email_cursus_aanvraag', [
+          'cursist_voornaam' => $gebruiker->first_name,
+          'cursist_achternaam' => $gebruiker->last_name,
+          'cursus_naam' => $cursus->naam,
+          'cursus_docent' => $cursus->docent,
+          'cursus_start_datum' => strftime('%A %d-%m-%y', strtotime($cursus->start_datum)),
+          'cursus_eind_datum' => strftime('%A %d-%m-%y', strtotime($cursus->eind_datum)),
+          'cursus_start_tijd' => strftime('%H:%M', strtotime($cursus->start_tijd)),
+          'cursus_eind_tijd' => strftime('%H:%M', strtotime($cursus->eind_tijd)),
+          'cursus_technieken' => is_array($technieken) ? implode(', ', $inschrijvingen[$cursus_id]['technieken']) : '',
+          'cursus_opmerking' => $inschrijvingen[$cursus_id]['opmerking'],
+          'cursus_code' => $inschrijvingen[$cursus_id]['code'],
+          'cursus_kosten' => '€ ' . number_format($cursus->cursuskosten, 2, ',', ''),
+          'cursus_inschrijfkosten' => '€ ' . number_format($cursus->inschrijfkosten, 2, ',', ''),
+      ]);
+      return $this->mail($to, 'inschrijving cursus', $message, true);
+    } else {
+      $error->add('security', 'Er is een interne fout geconstateerd. Probeer het eventueel op een later moment opnieuw');
+      return $error;
+    }
+  }
+
+  /**
+   * help functie, toont cursus formulier en naw velden indien niet ingelogd
+   * 
+   * @global type $wpdb   toegang tot wp db
+   * @param type $tonen   bepaalt of waarden eerder ingevuld zijn
+   * @return string       html form
+   */
+  private function toon_cursus_inschrijf_formulier($tonen = false) {
+    global $wpdb;
+
+    $cursussen = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}kleistad_cursussen WHERE eind_datum > CURDATE() ORDER BY start_datum");
+    if ($wpdb->num_rows < 1) {
+      return '<div class="kleistad_fout"><p>Helaas zijn alle cursussen volgeboekt</p></div>';
+    }
+    if ($tonen) {
+      $input = filter_input_array(INPUT_POST, [
+          'emailadres' => FILTER_SANITIZE_EMAIL,
+          'voornaam' => FILTER_SANITIZE_STRING,
+          'achternaam' => FILTER_SANITIZE_STRING,
+          'straat' => FILTER_SANITIZE_STRING,
+          'huisnr' => FILTER_SANITIZE_STRING,
+          'pcode' => FILTER_SANITIZE_STRING,
+          'plaats' => FILTER_SANITIZE_STRING,
+          'telnr' => FILTER_SANITIZE_STRING,
+          'cursus_keuze' => FILTER_SANITIZE_STRING,
+          'opmerking' => FILTER_SANITIZE_STRING,
+      ]);
+    } else {
+      $input = ['emailadres' => '', 'voornaam' => '', 'achternaam' => '', 'straat' => '', 'huisnr' => '', 'pcode' => '', 'plaats' => '', 'telnr' => '', 'cursus_keuze' => '', 'opmerking' => ''];
+    }
+    $html = '<form class="kleistad_form" action="' . get_permalink() . '" method="POST">' .
+            wp_nonce_field('kleistad_cursus_inschrijving', '_wpnonce', false, false) .
+            '<table class="kleistad_form" >';
+
+    foreach ($cursussen as $cursus) {
+      $disabled = ' ';
+      $checked = (($input['cursus_keuze'] == $cursus->id) ? 'checked ' : ' ');
+      $naam = $cursus->naam . ', start ' . strftime('%A %d-%m-%y', strtotime($cursus->start_datum)) . ' ' . strftime('%H:%M', strtotime($cursus->start_tijd));
+      if ($cursus->vervallen || $cursus->vol) {
+        $naam .= ($cursus->vervallen ? ': vervallen' : ': vol');
+        $disabled = 'disabled ';
+      }
+      $html .= '<tr><td style="text-align:center"><input type="radio" name="cursus_id" value="' . $cursus->id . '" ' . $checked . $disabled . 
+              'data-technieken=\''. $cursus->technieken .'\' ></td><td colspan="3">' . $naam . '</td></tr>';
+    }
+    $html .= '<tr title="kies de techniek(en) die je wilt oefenen" ><td style="visibility:hidden" id="kleistad_cursus_technieken" >Techniek</td>
+              <td style="visibility:hidden" id="kleistad_cursus_draaien" ><input type="checkbox" name="technieken[]" value="Draaien">Draaien</td>
+              <td style="visibility:hidden" id="kleistad_cursus_handvormen" ><input type="checkbox" name="technieken[]" value="Handvormen">Handvormen</td>
+              <td style="visibility:hidden" id="kleistad_cursus_boetseren" ><input type="checkbox" name="technieken[]" value="Boetseren">Boetseren</td>
+            </tr>';
+
+    if (!is_user_logged_in()) {
+      $html .= '<tr>
+            <td><label for="kleistad_voornaam">Naam</label></td>
+            <td><input type="text" name="voornaam" id="kleistad_voornaam" required maxlength="25" placeholder="voornaam" value="' . $input['voornaam'] . '" /></td>
+            <td colspan="2" ><input type="text" name="achternaam" id="kleistad_achternaam" required maxlength="25" placeholder="achternaam" value="' . $input['achternaam'] . '" /></td>
+          </tr>
+          <tr>
+            <td><label for="kleistad_emailadres">Email adres</label></td>
+            <td colspan="3" ><input type="email" name="emailadres" id="kleistad_emailadres" required placeholder="mijnemailadres@voorbeeld.nl" value="' . $input['emailadres'] . '" /></td>
+          </tr>
+          <tr>
+            <td><label for="kleistad_telnr">Telefoon</label></td>
+            <td colspan="3" ><input type="text" name="telnr" id="kleistad_telnr" maxlength="15" placeholder="0123456789" value="' . $input['telnr'] . '" /></td>
+          </tr>
+          <tr>    
+            <td><label for="kleistad_straat">Straat, nr</label></td>
+            <td colspan="2" ><input type="text" name="straat" id="kleistad_straat" required placeholder="straat" maxlength="50" value="' . $input['straat'] . '" /></td>
+            <td><input type="text" name="huisnr" id="kleistad_huisnr" required maxlength="10" placeholder="nr" value="' . $input['huisnr'] . '" /></td>
+          </tr>
+          <tr>
+            <td><label for="kleistad_pcode">Postcode, Plaats</label></td>
+            <td><input type="text" name="pcode" id="kleistad_pcode" required maxlength="10" placeholder="1234AB" pattern="^[1-9][0-9]{3}\s?[a-zA-Z]{2}$" value="' . $input['pcode'] . '" /></td>
+            <td colspan="2" ><input type="text" name="plaats" id="kleistad_plaats" required maxlength="50" placeholder="MijnWoonplaats" value="' . $input['plaats'] . '" /></td>
+          </tr>';
+    }
+    $html .= '<tr title="Wat is je ervaring met klei? Je kunt hier ook andere opmerkingen achterlaten die van belang zijn voor de cursus indeling" ><td><label for="kleistad_opmerking">Opmerking</label></td>
+              <td colspan="3" ><textarea name="opmerking" id="kleistad_opmerking" rows="5" cols="50">' . $input['opmerking'] . '</textarea></td></tr>
+      </table>
+        <button type="submit" name="kleistad_cursus_inschrijving" id="kleistad_cursus_inschrijving" >Verzenden</button>
+        </form>';
+    return $html;
+  }
+
+  /**
+   * help functie toont foutmeldingen na invullen formulier
+   * 
+   * @param wp_error_object $result 
+   * @return string  html tekst
+   */
+  private function toon_fout($result) {
+    $html = '';
+    foreach ($result->get_error_messages() as $error) {
+      $html .= '<div class="kleistad_fout"><p>' . $error . '</p></div>';
+    }
+    return $html;
+  }
+
+  /**
+   * help functie toont succes melding na invullen formulier 
+   * 
+   * @return string   html tekst
+   */
+  private function toon_succes($mail = true) {
+    if ($mail) {
+      return '<div class="kleistad_succes"><p>De aanvraag is verwerkt. Je ontvangt een email ter bevestiging</p></div>';
+    } else {
+      return '<div class="kleistad_succes"><p>De gegevens zijn opgeslagen</p></div>';
+    }
+  }
+
+  /**
+   * shortcode handler voor het cursus inschrijf formulier
+   *
+   */
+  public function cursus_inschrijving_handler() {
+    $this->enqueue_scripts();
+    $this->setlocale_NL();
+
+    if (!is_null(filter_input(INPUT_POST, 'kleistad_cursus_inschrijving'))) {
+      $resultaat = $this->registreer_cursus_inschrijving();
+      if (is_wp_error($resultaat)) {
+        return $this->toon_fout($resultaat) . $this->toon_cursus_inschrijf_formulier(true);
+      }
+      return $this->toon_succes() . $this->toon_cursus_inschrijf_formulier();
+    }
+    return $this->toon_cursus_inschrijf_formulier();
+  }
+
+  /**
+   * helper functie toont gegevens formulier
+   * 
+   * @return string
+   */
+  private function toon_cursus_gegevens_formulier() {
+    $html = '<div id="kleistad_cursus_gegevens" >
+        <form id="kleistad_form_cursus_gegevens" action="#" method="post" >' . wp_nonce_field('kleistad_cursus_gegevens', '_wpnonce', false, false) .
+            '<input type="hidden" name="id" id="kleistad_cursus_id_1" />
+          <table class="kleistad_form" >
+            <tr><th>Naam</th><td colspan="3"><input type="text" name="naam" id="kleistad_cursus_naam" placeholder="Bijv. cursus draaitechnieken" required /></td></tr>
+            <tr><th>Docent</th><td colspan="3"><input type="text" name="docent" id="kleistad_cursus_docent" list="kleistad_docenten" >
+            <datalist id="kleistad_docenten">';
+    $gebruikers = get_users(['fields' => ['display_name'], 'orderby' => ['nicename']]);
+    foreach ($gebruikers as $gebruiker) {
+      $html .= '<option value="' . $gebruiker->display_name . '">';
+    }
+    $html .= '</datalist></td></tr>
+              <tr><th>Start</th><td><input type="date" name="start_datum" id="kleistad_cursus_start_datum" class="kleistad-datum" required /></td>
+              <th>Eind</th><td><input type="date" name="eind_datum" id="kleistad_cursus_eind_datum" class="kleistad-datum" min="' . date('Y-m-d') . '" required /></td></tr>
+            <tr><th>Begintijd</th><td><input type="text" name="start_tijd" id="kleistad_cursus_start_tijd" placeholder="00:00" class="kleistad_tijd" /></td>
+              <th>Eindtijd</th><td><input type="text" name="eind_tijd" id="kleistad_cursus_eind_tijd" placeholder="00:00" class="kleistad_tijd" /></td></tr>
+            <tr><th>Technieken</th>
+              <td><input type="checkbox" name="technieken[]" id="kleistad_draaien" value="Draaien">Draaien</td>
+              <td><input type="checkbox" name="technieken[]" id="kleistad_handvormen" value="Handvormen">Handvormen</td>
+              <td><input type="checkbox" name="technieken[]" id="kleistad_boetseren" value="Boetseren">Boetseren</td></tr>
+            <tr><th>Inschrijf kosten</th><td><input type="number" name="inschrijfkosten" id="kleistad_inschrijfkosten" value="25" min="0" required ></td>
+                <th>Cursus kosten, excl. inschrijf kosten</th><td><input type="number" name="cursuskosten" id="kleistad_cursuskosten" value="110" min="0" required ></td></tr>
+            <tr><th>Cursus vol</th><td><input type="checkbox" id="kleistad_vol" name="vol" ></td><th>Cursus vervallen</th><td><input type="checkbox" name="vervallen" id="kleistad_vervallen" ></td></tr>
+          </table>
+          <button type="submit" name="kleistad_bewaar_cursus_gegevens">Opslaan</button>
+        </form>
+      </div>';
+    return $html;
+  }
+
+  /**
+   * helper functie, valideer en registreer cursus gegevens
+   * @return \WP_Error
+   */
+  private function registreer_cursus_gegevens() {
+    global $wpdb;
+    $error = new WP_Error();
+    if (wp_verify_nonce(filter_input(INPUT_POST, '_wpnonce'), 'kleistad_cursus_gegevens')) {
+      $input = filter_input_array(INPUT_POST, [
+          'id' => FILTER_SANITIZE_NUMBER_INT,
+          'naam' => FILTER_SANITIZE_STRING,
+          'docent' => FILTER_SANITIZE_STRING,
+          'start_datum' => FILTER_SANITIZE_STRING,
+          'eind_datum' => FILTER_SANITIZE_STRING,
+          'start_tijd' => FILTER_SANITIZE_STRING,
+          'eind_tijd' => FILTER_SANITIZE_STRING,
+          'techniekkeuze' => FILTER_SANITIZE_STRING,
+          'vol' => FILTER_SANITIZE_STRING,
+          'vervallen' => FILTER_SANITIZE_STRING,
+          'inschrijfkosten' => ['filter' => FILTER_SANITIZE_NUMBER_FLOAT, 'flags' => FILTER_FLAG_ALLOW_FRACTION],
+          'cursuskosten' => ['filter' => FILTER_SANITIZE_NUMBER_FLOAT, 'flags' => FILTER_FLAG_ALLOW_FRACTION],
+      ]);
+      $input['technieken'] = json_encode(filter_input(INPUT_POST, 'technieken', FILTER_SANITIZE_STRING, FILTER_REQUIRE_ARRAY));
+      $input['vol'] = ($input['vol'] != '' ? 1 : 0);
+      $input['vervallen'] = ($input['vervallen'] != '' ? 1 : 0);
+      $wpdb->replace("{$wpdb->prefix}kleistad_cursussen", $input);
+    } else {
+      $error->add('security', 'Er is een interne fout geconstateerd. Probeer het eventueel op een later moment opnieuw');
+      return $error;
+    }
+  }
+
+  /**
+   * helper functie, toont indeling formulier
+   * 
+   * @return string
+   */
+  private function toon_cursus_indeling_formulier() {
+    $html = '<div id="kleistad_cursus_indeling" >
+        <form id="kleistad_form_cursus_indeling" action="#" method="post" >' . wp_nonce_field('kleistad_cursus_indeling', '_wpnonce', false, false) .
+            '<input type="hidden" name="cursus_id" id="kleistad_cursus_id_2" />
+             <input type="hidden" name="indeling_lijst" id="kleistad_indeling_lijst" /> 
+          <table class="kleistad_form" >
+            <tr><th>Wachtlijst</th><td></td><th>Indeling</th></tr>
+            <tr><td><select style="height:200px" size="10" id="kleistad_wachtlijst" ></select></td>
+              <td><button id="kleistad_wissel_indeling">&lt;-&gt;</button></td>
+              <td><select style="height:200px" size="10" id="kleistad_indeling" ></select></td>
+            </tr>
+          </table>
+          <div id="kleistad_cursist_technieken"></div>
+          <div id="kleistad_cursist_opmerking"></div>
+          <button type="submit" name="kleistad_bewaar_cursus_indeling" id="kleistad_bewaar_cursus_indeling" >Opslaan</button>
+        </form>
+      </div>';
+    return $html;
+  }
+
+  /**
+   * helper functie, valideer en registreer indeling
+   * 
+   * @return string
+   */
+  private function registreer_cursus_indeling() {
+    global $wpdb;
+    $error = new WP_Error();
+    if (wp_verify_nonce(filter_input(INPUT_POST, '_wpnonce'), 'kleistad_cursus_indeling')) {
+      $cursisten = json_decode(filter_input(INPUT_POST, 'indeling_lijst', FILTER_SANITIZE_STRING), true);
+      $cursus_id = filter_input(INPUT_POST, 'cursus_id', FILTER_SANITIZE_NUMBER_INT);
+      $cursus = $wpdb->get_row("SELECT * FROM {$wpdb->prefix}kleistad_cursussen WHERE id= $cursus_id");
+      if (count($cursisten > 0)) {
+        foreach ($cursisten as $cursist_id) {
+          $inschrijvingen = get_user_meta($cursist_id, self::INSCHRIJVINGEN, true);
+          if ($inschrijvingen[$cursus_id]['ingedeeld'] == 0) {
+            $gebruiker = get_userdata($cursist_id);
+            $technieken = $inschrijvingen[$cursus_id]['technieken'];
+            //error_log(print_r($technieken,true));
+            $to = "$gebruiker->first_name $gebruiker->last_name <$gebruiker->user_email>";
+            $message = $this->compose_email('kleistad_email_cursus_ingedeeld', [
+                'cursist_voornaam' => $gebruiker->first_name,
+                'cursist_achternaam' => $gebruiker->last_name,
+                'cursus_naam' => $cursus->naam,
+                'cursus_docent' => $cursus->docent,
+                'cursus_start_datum' => strftime('%A %d-%m-%y', strtotime($cursus->start_datum)),
+                'cursus_eind_datum' => strftime('%A %d-%m-%y', strtotime($cursus->eind_datum)),
+                'cursus_start_tijd' => strftime('%H:%M', strtotime($cursus->start_tijd)),
+                'cursus_eind_tijd' => strftime('%H:%M', strtotime($cursus->eind_tijd)),
+                'cursus_technieken' => is_array($technieken) ? implode(', ', $technieken) : '',
+                'cursus_code' => $inschrijvingen[$cursus_id]['code'],
+                'cursus_kosten' => '€ ' . number_format($cursus->cursuskosten, 2, ',', ''),
+                'cursus_inschrijfkosten' => '€ ' . number_format($cursus->inschrijfkosten, 2, ',', ''),
+            ]);
+            $this->mail($to, 'inschrijving cursus', $message, true);
+            $inschrijvingen[$cursus_id]['ingedeeld'] = 1;
+            update_user_meta($cursist_id, self::INSCHRIJVINGEN, $inschrijvingen);
+          }
+        }
+      }
+    } else {
+      $error->add('security', 'Er is een interne fout geconstateerd. Probeer het eventueel op een later moment opnieuw');
+      return $error;
+    }
+  }
+
+  /**
+   * helper functie, toont de openstaande cursussen, voor de cursus beheerder
+   * 
+   * @global type $wpdb
+   * @return string
+   */
+  private function toon_openstaande_cursussen() {
+    global $wpdb;
+    $html = '<table class="kleistad_tabel">
+      <thead>
+        <tr><th>Naam</th><th>Docent</th><th>Periode</th><th>Tijd</th><th>Technieken</th></tr>
+      </thead>
+      <tbody>';
+
+    $cursussen = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}kleistad_cursussen WHERE eind_datum >= CURDATE() ORDER BY start_datum DESC");
+    $inschrijvers = get_users(['meta_key' => self::INSCHRIJVINGEN]);
+    
+    foreach ($cursussen as $cursus) {
+      $wachtlijst = [];
+      $ingedeeld = [];
+
+      foreach ($inschrijvers as $inschrijver) {
+        $inschrijvingen = get_user_meta($inschrijver->ID, self::INSCHRIJVINGEN, true);
+        if (array_key_exists($cursus->id, $inschrijvingen)) {
+          $element = [
+                'naam' => $inschrijver->display_name, 
+                'opmerking' => $inschrijvingen[$cursus->id]['opmerking'], 
+                'technieken' => json_encode($inschrijvingen[$cursus->id]['technieken']) 
+              ];
+          if ($inschrijvingen[$cursus->id]['ingedeeld']) {
+            $ingedeeld[$inschrijver->ID] = $element;
+          } elseif ($inschrijvingen[$cursus->id]['i_betaald']) {
+            $wachtlijst[$inschrijver->ID] = $element;
+          }
+        }
+      }
+      $style = $cursus->vol ? 'style="background-color:lightblue"' : ($cursus->vervallen ? 'style="background-color:lightgray"' : '');
+      $html .= '<tr ' . $style . ' ><td><a class="kleistad_cursus_beheer" href="#" rel="bookmark" data-cursus=\'' .
+              json_encode($cursus) . '\' data-wachtlijst= \'' . json_encode($wachtlijst) . '\' data-ingedeeld= \'' . json_encode($ingedeeld) . '\' >' . $cursus->naam . '</a></td>';
+      $html .= '<td>' . $cursus->docent . '</td>';
+      $html .= '<td>' . strftime('%d-%m', strtotime($cursus->start_datum)) . ' .. ' . strftime('%d-%m', strtotime($cursus->eind_datum)) . '</td>';
+      $html .= '<td>' . strftime('%H:%M', strtotime($cursus->start_tijd)) . ' - ' . strftime('%H:%M', strtotime($cursus->eind_tijd)) . '</td>';
+      $html .= '<td>';
+      $technieken = json_decode ($cursus->technieken, true);
+      if (is_array($technieken)) {
+        foreach ($technieken as $techniek) {
+          $html .= $techniek . '<br/>';
+        }
+      }
+    }
+    $html .= '</tbody></table>';
+    return $html;
+  }
+
+  /**
+   * shortcode handler voor het aanmaken, wijzigen of laten vervallen van cursussen en het indelen van de cursisten
+   * 
+   * @param type $atts
+   */
+  public function cursus_beheer_handler() {
+    if (!$this->override()) {
+      return '';
+    }
+    $this->enqueue_scripts();
+    $this->setlocale_NL();
+
+    $html = '';
+    if (!is_null(filter_input(INPUT_POST, 'kleistad_bewaar_cursus_gegevens'))) {
+      $resultaat = $this->registreer_cursus_gegevens();
+      $html .= (is_wp_error($resultaat)) ? $this->toon_fout($resultaat) : $this->toon_succes(false);
+    }
+
+    if (!is_null(filter_input(INPUT_POST, 'kleistad_bewaar_cursus_indeling'))) {
+      $resultaat = $this->registreer_cursus_indeling();
+      $html .= (is_wp_error($resultaat)) ? $this->toon_fout($resultaat) : $this->toon_succes(false);
+    }
+
+    $html .= '<div id="kleistad_cursus">
+        <div id="kleistad_cursus_tabs">
+          <ul>
+            <li><a href="#kleistad_cursus_gegevens">Cursus informatie</a></li>
+            <li><a href="#kleistad_cursus_indeling">Cursus indeling</a></li>
+          </ul>' . $this->toon_cursus_gegevens_formulier() . $this->toon_cursus_indeling_formulier() . '
+        </div>
+      </div>' . $this->toon_openstaande_cursussen() .
+            '<button id="kleistad_cursus_toevoegen" >Toevoegen</button>';
+
+    return $html;
+  }
+
+  /**
+   * helper functie, toont cursisten die nog betalingen hebben openstaand
+   * 
+   * @return string
+   */
+  private function registreer_betalingen() {
+    $error = new WP_Error();
+    if (wp_verify_nonce(filter_input(INPUT_POST, '_wpnonce'), 'kleistad_betalingen')) {
+      $i_betalingen = filter_input(INPUT_POST, 'kleistad_i_betaald', FILTER_SANITIZE_STRING, FILTER_REQUIRE_ARRAY);
+      $i_betalingen_lijst = [];
+      if (!is_null($i_betalingen)) {
+        foreach ($i_betalingen as $i_betaald) {
+          $atts = explode(' ', $i_betaald);
+          $cursist_id = intval($atts[0]);
+          $cursus_id = intval($atts[1]);
+          $i_betalingen_lijst[$cursist_id][$cursus_id] = 1;
+        }
+      }
+      $c_betalingen = filter_input(INPUT_POST, 'kleistad_c_betaald', FILTER_SANITIZE_STRING, FILTER_REQUIRE_ARRAY);
+      $c_betalingen_lijst = [];
+      if (!is_null($c_betalingen)) {
+        foreach ($c_betalingen as $c_betaald) {
+          $atts = explode(' ', $c_betaald);
+          $cursist_id = intval($atts[0]);
+          $cursus_id = intval($atts[1]);
+          $c_betalingen_lijst[$cursist_id][$cursus_id] = 1;
+        }
+      }
+      $inschrijvers = get_users(['meta_key' => self::INSCHRIJVINGEN]);
+      foreach ($inschrijvers as $inschrijver) {
+        $inschrijvingen = get_user_meta($inschrijver->ID, self::INSCHRIJVINGEN, true);
+        foreach ($inschrijvingen as $cursus_id => &$inschrijving) {
+          if (array_key_exists($inschrijver->ID, $c_betalingen_lijst) AND array_key_exists($cursus_id, $c_betalingen_lijst[$inschrijver->ID])) {
+            $inschrijving['c_betaald'] = 1;
+          }
+          if (array_key_exists($inschrijver->ID, $i_betalingen_lijst) AND array_key_exists($cursus_id, $i_betalingen_lijst[$inschrijver->ID])) {
+            $inschrijving['i_betaald'] = 1;
+          }
+        }
+        update_user_meta($inschrijver->ID, self::INSCHRIJVINGEN, $inschrijvingen);
+      }
+      return true;
+    } else {
+      $error->add('security', 'Er is een interne fout geconstateerd. Probeer het eventueel op een later moment opnieuw');
+      return $error;
+    }
+  }
+
+  /**
+   * shortcode handler voor het uitlijsten en verwerken van alle openstaande betaalstatussen, voorlopig alleen inschrijf- en cursusgeld
+   * 
+   * @param type $atts
+   */
+  public function betalingen_handler() {
+    if (!$this->override()) {
+      return '';
+    }
+    $this->enqueue_scripts();
+    $this->setlocale_NL();
+
+    $html = '';
+    if (!is_null(filter_input(INPUT_POST, 'kleistad_registreer_betalingen', FILTER_SANITIZE_STRING))) {
+      $resultaat = $this->registreer_betalingen();
+      $html .= (is_wp_error($resultaat)) ? $this->toon_fout($resultaat) : $this->toon_succes(false);
+    }
+
+    $html .= '<form id="kleistad_form_betalingen" action="#" method="post" >' . wp_nonce_field('kleistad_betalingen', '_wpnonce', false, false) .
+            '<table class="kleistad_tabel" >
+          <tr><th>Datum<br/>inschrijving</th><th>Code</th><th>Naam</th><th>Inschrijfgeld<br/>betaald</th><th>Cursusgeld<br/>betaald</th></tr>';
+    $inschrijvers = get_users(['meta_key' => self::INSCHRIJVINGEN]);
+    foreach ($inschrijvers as $inschrijver) {
+      $inschrijvingen = get_user_meta($inschrijver->ID, self::INSCHRIJVINGEN, true);
+      foreach ($inschrijvingen as $cursus_id => $inschrijving) {
+        if (($inschrijving['i_betaald'] == 0) || ($inschrijving['c_betaald'] == 0)) {
+          $html .= '<tr><td>' . $inschrijving['datum'] . '</td><td>' . $inschrijving['code'] . '</td><td>' . $inschrijver->display_name . '</td>
+            <td><input type="checkbox" name="kleistad_i_betaald[]" value="' . $inschrijver->ID . ' ' . $cursus_id . '"' . ($inschrijving['i_betaald'] ? ' checked' : '') . ' ></td>
+            <td><input type="checkbox" name="kleistad_c_betaald[]" value="' . $inschrijver->ID . ' ' . $cursus_id . '"' . ($inschrijving['c_betaald'] ? ' checked' : '') . ' ></td></tr>';
+        }
+      }
+    }
+    $html .= '</table>
+      <button type="submit" name="kleistad_registreer_betalingen" >Opslaan</button>
+      </form>';
+    return $html;
+  }
+
+  /**
+   * shortcode handler voor het uitlijsten van contactinformatie van geregistreerde cursisten.
+   * 
+   */
+  public function registratie_overzicht_handler() {
+    if (!$this->override()) {
+      return '';
+    }
+    wp_enqueue_style('kleistad-css');
+    $this->setlocale_NL();
+
+    $html = '';
+    
+    global $wpdb;
+    $cursussen = $wpdb->get_results("SELECT id, naam FROM {$wpdb->prefix}kleistad_cursussen", OBJECT_K);
+
+    if (!is_null(filter_input(INPUT_POST, 'kleistad_registratiebestand_verzenden'))) {
+      if (wp_verify_nonce(filter_input(INPUT_POST, '_wpnonce'), 'kleistad_registratie_bestand')) {
+
+        $upload_dir = wp_upload_dir();
+        $bijlage = $upload_dir['basedir'] . '/registratiebestand_' . date('Y_m_d') . '.csv';
+        $f = fopen($bijlage, 'w');
+
+        $fields = ['Achternaam', 'Voornaam', 'Email', 'Straat', 'Huisnr', 'Postcode', 'Plaats', 'Telefoon', 'Cursus', 'Cursus code', 'Inschrijf status', 'Technieken', 'Opmerking'];
+        fputcsv($f, $fields, ';', '"');
+
+        $registraties = get_users(['orderby' => ['last_name']]); //(['meta_key' => self::CONTACTINFO, 'orderby' => ['last_name']]);
+        foreach ($registraties as $registratie) {
+          $values = [$registratie->last_name, 
+              $registratie->first_name, 
+              $registratie->user_email];
+          $contactinfo = get_user_meta($registratie->ID, self::CONTACTINFO, true);
+          if (is_array($contactinfo)) {
+            array_push ($values, 
+              $contactinfo['straat'], 
+              $contactinfo['huisnr'],
+              $contactinfo['pcode'],
+              $contactinfo['plaats'],
+              $contactinfo['telnr']);
+          } else {
+            array_push ($values, '', '', '', '', '');
+          }
+          $inschrijvingen = get_user_meta($registratie->ID, self::INSCHRIJVINGEN, true);
+          if (is_array($inschrijvingen)) {
+            foreach ($inschrijvingen as $cursus_id => $inschrijving) {
+              //error_log(print_r($inschrijving,true));
+              $values_2 = $values;
+              array_push ($values_2, $cursussen[$cursus_id]->naam,
+                  $inschrijving['code'],
+                  $inschrijving['ingedeeld'] ? 'ingedeeld' : 'wachtlijst',
+                  is_array($inschrijving['technieken']) ? implode(' ', $inschrijving['technieken']) : '',
+                  $inschrijving['opmerking']
+              );
+              fputcsv($f, $values_2, ';', '"');
+            }
+          } else {
+            fputcsv($f, $values, ';', '"');
+          }
+        }
+        fclose($f);
+
+        $gebruiker = wp_get_current_user();
+        $to = "$gebruiker->user_firstname $gebruiker->user_lastname <$gebruiker->user_email>";
+        $message = "<p>Bijgaand het bestand in .CSV formaat met alle registrataties.</p>";
+        $attachments = [$bijlage];
+        if ($this->mail($to, "Kleistad registratiebestand", $message, false, $attachments)) {
+          $html .= '<div class="kleistad_succes"><p>Het bestand is per email verzonden.</p></div>';
+        } else {
+          $html .= '<div class="kleistad_fout"><p>Er is een fout opgetreden</p></div>';
+        }
+      }
+    }
+
+    $html .= '<div id="kleistad_deelnemer_info"><table class="kleistad_tabel" id="kleistad_deelnemer_tabel" ></table></div>
+            <form action="#" method="post" >' . wp_nonce_field('kleistad_registratie_bestand', '_wpnonce', false, false) .
+            '<table class="kleistad_tabel" >
+            <tr><th>Achternaam</th><th>Voornaam</th><th>Straat</th><th>Huisnr</th><th>Postcode</th><th>Plaats</th><th>Email</th><th>Telnr</th></tr>';
+    $registraties = get_users(['orderby' => ['last_name']]);
+    foreach ($registraties as $registratie) {
+      $html .= '<tr class="kleistad_deelnemer_info" ';
+
+      $contactinfo = get_user_meta($registratie->ID, self::CONTACTINFO, true);
+      if (!is_array($contactinfo)) {
+        $contactinfo = ['straat' => '', 'huisnr' => '', 'pcode' => '', 'plaats' => '', 'telnr' => ''];
+      }
+      
+      $inschrijvingen = get_user_meta($registratie->ID, self::INSCHRIJVINGEN, true);
+      if (is_array($inschrijvingen)) {
+        foreach ($inschrijvingen as $cursus_id => &$inschrijving) {
+          $inschrijving['naam'] = $cursussen[$cursus_id]->naam;
+        }
+        $html .= 'data-inschrijvingen=\'' . json_encode($inschrijvingen). '\'';
+      }
+      $html .= ' data-deelnemer="' . $registratie->display_name . '" ><td>' . $registratie->last_name . '</td><td>' .
+              $registratie->first_name . '</td><td>' .
+              $contactinfo['straat'] . '</td><td>' .
+              $contactinfo['huisnr'] . '</td><td>' .
+              $contactinfo['pcode'] . '</td><td>' .
+              $contactinfo['plaats'] . '</td><td>' .
+              $registratie->user_email . '</td><td>' .
+              $contactinfo['telnr'] . '</td><tr>';
+    }
+    $html .= '</table>
+          <button type="submit" name="kleistad_registratiebestand_verzenden" >Bestand aanmaken</button>
+        </form>';
+    return $html;
+  }
+
+  /**
    * Scheduled job, update elke nacht de saldi
    */
   public function update_ovenkosten() {
@@ -905,14 +1675,14 @@ class Kleistad {
      */
     $transactie_datum = date('Y-m-d', strtotime('- ' . self::TERMIJN . ' days'));
     $transacties = $wpdb->get_results(
-        "SELECT RE.id AS id, gebruiker_id, oven_id, naam, verdeling, kosten, dag, maand, jaar FROM
+            "SELECT RE.id AS id, gebruiker_id, oven_id, naam, verdeling, kosten, dag, maand, jaar FROM
                 {$wpdb->prefix}kleistad_reserveringen RE,
                 {$wpdb->prefix}kleistad_ovens OV
                 WHERE RE.oven_id = OV.id AND verwerkt = '0' AND str_to_date(concat(jaar,'-',maand,'-',dag),'%Y-%m-%d') <= '$transactie_datum'");
     foreach ($transacties as $transactie) {
       $datum = strftime('%d-%m-%Y', mktime(0, 0, 0, $transactie->maand, $transactie->dag, $transactie->jaar));
       if ($transactie->verdeling == '') {
-        $stookdelen = [ ['id' => $transactie->gebruiker_id, 'perc' => 100],
+        $stookdelen = [['id' => $transactie->gebruiker_id, 'perc' => 100],
             ['id' => 0, 'perc' => 0], ['id' => 0, 'perc' => 0], ['id' => 0, 'perc' => 0], ['id' => 0, 'perc' => 0],];
       } else {
         $stookdelen = json_decode($transactie->verdeling, true);
@@ -951,7 +1721,7 @@ class Kleistad {
      * de notificaties uitsturen voor stook die nog niet verwerkt is. 
      */
     $notificaties = $wpdb->get_results(
-        "SELECT RE.id AS id, oven_id, naam, kosten, gebruiker_id, dag, maand, jaar FROM
+            "SELECT RE.id AS id, oven_id, naam, kosten, gebruiker_id, dag, maand, jaar FROM
                 {$wpdb->prefix}kleistad_reserveringen RE,
                 {$wpdb->prefix}kleistad_ovens OV
             WHERE RE.oven_id = OV.id AND gemeld = '0' AND verwerkt = '0' AND str_to_date(concat(jaar,'-',maand,'-',dag),'%Y-%m-%d') < '$vandaag'");
@@ -1029,7 +1799,7 @@ class Kleistad {
           $soortstook = '';
           $temperatuur = '';
           $programma = '';
-          $verdeling = [ ['id' => $huidige_gebruiker_id, 'perc' => 100],
+          $verdeling = [['id' => $huidige_gebruiker_id, 'perc' => 100],
               ['id' => 0, 'perc' => 0], ['id' => 0, 'perc' => 0], ['id' => 0, 'perc' => 0], ['id' => 0, 'perc' => 0],];
           $opmerking = '';
           $gereserveerd = false;
@@ -1055,7 +1825,7 @@ class Kleistad {
                 $kleur = !$datum_verstreken ? 'green' : $kleur;
                 $wijzigbaar = !$verwerkt || is_super_admin();
                 $verwijderbaar = $this->override() ?
-                    !$verwerkt : !$datum_verstreken;
+                        !$verwerkt : !$datum_verstreken;
               } else {
                 $kleur = !$datum_verstreken ? 'red' : $kleur;
                 // als de huidige gebruiker geen bevoegdheid heeft, dan geen actie
@@ -1134,7 +1904,7 @@ class Kleistad {
     $opmerking = sanitize_text_field($request->get_param('opmerking'));
 
     $reservering = $wpdb->get_row(
-        "SELECT gebruiker_id, id FROM {$wpdb->prefix}kleistad_reserveringen
+            "SELECT gebruiker_id, id FROM {$wpdb->prefix}kleistad_reserveringen
              WHERE maand='$maand' AND jaar='$jaar' AND dag='$dag' AND oven_id='" . absint($oven) . "'");
     if ($oven > 0) {
       // het betreft een toevoeging of wijziging
