@@ -90,6 +90,8 @@
             $('#kleistad_cursus_eind_tijd').val(cursus.eind_tijd.substr(0,5));
             $('#kleistad_cursuskosten').val(cursus.cursuskosten);
             $('#kleistad_inschrijfkosten').val(cursus.inschrijfkosten);
+            $('#kleistad_inschrijfslug').val(cursus.inschrijfslug);
+            $('#kleistad_indelingslug').val(cursus.indelingslug);
             $('#kleistad_draaien').prop("checked", String(cursus.technieken).indexOf('Draaien') >= 0);
             $('#kleistad_handvormen').prop("checked", String(cursus.technieken).indexOf('Handvormen') >= 0);
             $('#kleistad_boetseren').prop("checked", String(cursus.technieken).indexOf('Boetseren') >= 0);
@@ -118,10 +120,16 @@
             $('#kleistad_cursus_eind_datum').removeAttr('value');
             $('#kleistad_cursus_start_tijd').removeAttr('value');
             $('#kleistad_cursus_eind_tijd').removeAttr('value');
+            $('#kleistad_cursuskosten').prop('defaultValue');;
+            $('#kleistad_inschrijfkosten').prop('defaultValue');
+            $('#kleistad_inschrijfslug').prop('defaultValue');
+            $('#kleistad_indelingslug').prop('defaultValue');
             $('#kleistad_draaien').prop("checked", false);
             $('#kleistad_handvormen').prop("checked", false);
             $('#kleistad_boetseren').prop("checked", false);
             $('#kleistad_techniekkeuze').prop("checked", false);
+            $('#kleistad_vol').prop("checked", false);
+            $('#kleistad_vervallen').prop("checked", false);
             $('#kleistad_wachtlijst').children().remove().end();
             $('#kleistad_indeling').children().remove().end();
         });

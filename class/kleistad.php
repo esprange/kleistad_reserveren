@@ -178,6 +178,8 @@ class Kleistad {
                 techniekkeuze tinyint(1) DEFAULT 0,
                 inschrijfkosten numeric(10,2),
                 cursuskosten numeric(10,2),
+                inschrijfslug tinytext,
+                indelingslug tinytext,
                 PRIMARY KEY  (id)
               ) $charset_collate;"
       );
@@ -474,19 +476,55 @@ class Kleistad {
   }
 
   /**
-   * helper functie, haalt email tekst vanuit berecht en vervangt alle placeholders
-   * @param string $slug
+   * helper functie, haalt email tekst vanuit pagina en vervangt alle placeholders en verzendt de mail
+   * @param string $to
+   * @param string $subject
+   * @param string $slug (pagina titel, als die niet bestaat wordt verondersteld dat de slug de bericht tekst bevat)
    * @param array $args
+   * @param string $attachment
    */
-  private function compose_email($slug, $args) {
+  private function compose_email($to, $subject, $slug, $args = [], $attachment = []) {
+    $headers[] = "Content-Type: text/html; charset=UTF-8";
+    $headers[] = "From: Kleistad <$this->from_email>";
+
     $page = get_page_by_title($slug, OBJECT);
     if (!is_null($page)) {
       $text = apply_filters('the_content', $page->post_content);
       foreach ($args as $key => $value) {
         $text = str_replace('[' . $key . ']', $value, $text);
       }
-      return $text;
+      $fields = ['cc', 'bcc'];
+      foreach ($fields as $field) {
+        $gevonden = stripos ($text, '[' . $field . ':');
+        if (!($gevonden === false)) {
+          $eind = stripos($text,']', $gevonden);
+          $adres = substr($text, $gevonden + 1, $eind - $gevonden - 1);
+          $text = substr($text, 0, $gevonden) . substr($text, $eind + 1);
+          $headers[] = ucfirst($adres);
+        }
+      }
+    } else {
+      $text = $slug;
     }
+    $htmlmessage = '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+          <html xmlns="http://www.w3.org/1999/xhtml">
+          <head>
+          <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+          <meta name="viewport" content="initial-scale=1.0"/>
+          <meta name="format-detection" content="telephone=no"/>
+          <title>' . $subject . '</title>
+          </head>
+          <body><table width="100%" border="0" align="center" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="left" style="font-family:helvetica; font-size:13pt" >' . preg_replace('/\s+/', ' ', $text) . '<br /><p>Met vriendelijke groet,</p>
+          <p>Kleistad</p><p><a href="mailto:' . $this->info_email . '" target="_top">' . $this->info_email . '</a></p></td>                         
+          </tr>
+          <tr>
+            <td align="center" style="font-family:calibri; font-size:9pt" >Deze e-mail is automatisch gegenereerd en kan niet beantwoord worden.</td>
+          </tr></table></body>
+          </html>';
+    $resultaat = wp_mail($to, $subject, $htmlmessage, $headers, $attachment);
+    return $resultaat;
   }
 
   /**
@@ -496,35 +534,34 @@ class Kleistad {
    * @param string $message
    * @param string $attachment
    */
-  private function mail($to, $subject, $message, $copy = false, $attachment = []) {
-    $headers[] = "Content-Type: text/html; charset=UTF-8";
-    $headers[] = "From: Kleistad <$this->from_email>";
-    $headers[] = "Bcc: $this->copy_email";
-    if ($copy) {
-      $headers[] = "Cc: $this->info_email";
-    }
-
-    $htmlmessage = '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-            <html xmlns="http://www.w3.org/1999/xhtml">
-            <head>
-            <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-            <meta name="viewport" content="initial-scale=1.0"/>
-            <meta name="format-detection" content="telephone=no"/>
-            <title>' . $subject . '</title>
-            </head>
-            <body><table width="100%" border="0" align="center" cellpadding="0" cellspacing="0">
-            <tr>
-            <td align="left" style="font-family:helvetica; font-size:13pt" >' . preg_replace('/\s+/', ' ', $message) . '<br /><p>Met vriendelijke groet,</p>
-            <p>Kleistad</p><p><a href="mailto:' . $this->info_email . '" target="_top">' . $this->info_email . '</a></p></td>                         
-            </tr>
-            <tr>
-            <td align="center" style="font-family:calibri; font-size:9pt" >Deze e-mail is automatisch gegenereerd en kan niet beantwoord worden.</td>
-            </tr></table></body>
-            </html>';
-    $resultaat = wp_mail($to, $subject, $htmlmessage, $headers, $attachment);
-//   error_log(print_r('mail: ' . $resultaat, true));
-    return $resultaat;
-  }
+//  private function mail($to, $subject, $message, $copy = false, $attachment = []) {
+//    $headers[] = "Content-Type: text/html; charset=UTF-8";
+//    $headers[] = "From: Kleistad <$this->from_email>";
+//    $headers[] = "Bcc: $this->copy_email";
+//    if ($copy) {
+//      $headers[] = "Cc: $this->info_email";
+//    }
+//
+//    $htmlmessage = '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+//            <html xmlns="http://www.w3.org/1999/xhtml">
+//            <head>
+//            <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+//            <meta name="viewport" content="initial-scale=1.0"/>
+//            <meta name="format-detection" content="telephone=no"/>
+//            <title>' . $subject . '</title>
+//            </head>
+//            <body><table width="100%" border="0" align="center" cellpadding="0" cellspacing="0">
+//            <tr>
+//            <td align="left" style="font-family:helvetica; font-size:13pt" >' . preg_replace('/\s+/', ' ', $message) . '<br /><p>Met vriendelijke groet,</p>
+//            <p>Kleistad</p><p><a href="mailto:' . $this->info_email . '" target="_top">' . $this->info_email . '</a></p></td>                         
+//            </tr>
+//            <tr>
+//            <td align="center" style="font-family:calibri; font-size:9pt" >Deze e-mail is automatisch gegenereerd en kan niet beantwoord worden.</td>
+//            </tr></table></body>
+//            </html>';
+//    $resultaat = wp_mail($to, $subject, $htmlmessage, $headers, $attachment);
+//    return $resultaat;
+//  }
 
   /**
    * helper functie, zorg dat nederlandse format gebruikt wordt voor datums etc.
@@ -768,7 +805,7 @@ class Kleistad {
       $to = "$gebruiker->first_name $gebruiker->last_name <$gebruiker->user_email>";
       $message = "<p>Bijgaand het bestand in .CSV formaat met alle transacties tussen $vanaf_datum en $tot_datum.</p>";
       $attachments = [$bijlage];
-      if ($this->mail($to, "Kleistad stookbestand $vanaf_datum - $tot_datum", $message, false, $attachments)) {
+      if ($this->compose_email($to, "Kleistad stookbestand $vanaf_datum - $tot_datum", $message, [], $attachments)) {
         $html = '<div><p>Het bestand is per email verzonden.</p></div>';
       } else {
         $html = 'Er is een fout opgetreden';
@@ -811,9 +848,8 @@ class Kleistad {
       $gebruiker = get_userdata($gebruiker_id);
 
       $to = "$gebruiker->first_name $gebruiker->last_name <$gebruiker->user_email>";
-      $message = "<p>Beste $gebruiker->first_name</p><br />
-                <p>Bij deze bevestigen we ontvangst van de melding via <a href=\"www.kleistad.nl\" >www.kleistad.nl</a> dat er per <strong>$datum</strong> een bedrag van <strong>&euro; $bedrag</strong> betaald is per <strong>$via</strong> voor aanvulling van het stooksaldo.</p>";
-      if ($this->mail($to, 'wijziging stooksaldo', $message, true)) {
+      if ($this->compose_email($to, 'wijziging stooksaldo', 'kleistad_email_saldo_wijziging', 
+              ['vandaag' => $datum, 'via' => $via, 'bedrag' => $bedrag, 'voornaam' => $gebruiker->first_name, 'achternaam' => $gebruiker->last_name, ] )) {
         $huidig = (float) get_user_meta($gebruiker_id, 'stooksaldo', true);
         $saldo = $bedrag + $huidig;
         update_user_meta($gebruiker->ID, 'stooksaldo', $saldo);
@@ -865,9 +901,6 @@ class Kleistad {
       return '';
     }
     $this->enqueue_scripts();
-//    ('jquery-ui-tooltip');
-//    wp_enqueue_script('kleistad-js');
-//    wp_enqueue_style('kleistad-css');
     add_thickbox();
     $oven = 0;
 
@@ -1004,7 +1037,8 @@ class Kleistad {
     if (!$input['achternaam']) {
       $error->add('verplicht', 'Een achternaam is verplicht');
     }
-    if (!empty($error->get_error_codes())) {
+    $err = $error->get_error_codes();
+    if (!empty($err)) {
       return $error;
     }
     $gebruiker_id = email_exists($input['emailadres']);
@@ -1088,9 +1122,9 @@ class Kleistad {
       $gebruiker = get_userdata($gebruiker_id);
       $to = "$gebruiker->first_name $gebruiker->last_name <$gebruiker->user_email>";
       $technieken = $inschrijvingen[$cursus_id]['technieken'];
-      $message = $this->compose_email('kleistad_email_cursus_aanvraag', [
-          'cursist_voornaam' => $gebruiker->first_name,
-          'cursist_achternaam' => $gebruiker->last_name,
+      return $this->compose_email($to, 'inschrijving cursus', $cursus->inschrijfslug, [
+          'voornaam' => $gebruiker->first_name,
+          'achternaam' => $gebruiker->last_name,
           'cursus_naam' => $cursus->naam,
           'cursus_docent' => $cursus->docent,
           'cursus_start_datum' => strftime('%A %d-%m-%y', strtotime($cursus->start_datum)),
@@ -1102,8 +1136,7 @@ class Kleistad {
           'cursus_code' => $inschrijvingen[$cursus_id]['code'],
           'cursus_kosten' => '€ ' . number_format($cursus->cursuskosten, 2, ',', ''),
           'cursus_inschrijfkosten' => '€ ' . number_format($cursus->inschrijfkosten, 2, ',', ''),
-      ]);
-      return $this->mail($to, 'inschrijving cursus', $message, true);
+        ]);
     } else {
       $error->add('security', 'Er is een interne fout geconstateerd. Probeer het eventueel op een later moment opnieuw');
       return $error;
@@ -1268,6 +1301,8 @@ class Kleistad {
             <tr><th>Inschrijf kosten</th><td><input type="number" name="inschrijfkosten" id="kleistad_inschrijfkosten" value="25" min="0" required ></td>
                 <th>Cursus kosten, excl. inschrijf kosten</th><td><input type="number" name="cursuskosten" id="kleistad_cursuskosten" value="110" min="0" required ></td></tr>
             <tr><th>Cursus vol</th><td><input type="checkbox" id="kleistad_vol" name="vol" ></td><th>Cursus vervallen</th><td><input type="checkbox" name="vervallen" id="kleistad_vervallen" ></td></tr>
+            <tr><th>Inschrijf email</th><td colspan="3"><input type="text" name="inschrijfslug" id="kleistad_inschrijfslug" value="kleistad_email_cursus_aanvraag" requires /></td></tr>
+            <tr><th>Indeling email</th><td colspan="3"><input type="text" name="indelingslug" id="kleistad_indelingslug" value="kleistad_email_cursus_ingedeeld" required /></td></tr>
           </table>
           <button type="submit" name="kleistad_bewaar_cursus_gegevens">Opslaan</button>
         </form>
@@ -1296,6 +1331,8 @@ class Kleistad {
           'vervallen' => FILTER_SANITIZE_STRING,
           'inschrijfkosten' => ['filter' => FILTER_SANITIZE_NUMBER_FLOAT, 'flags' => FILTER_FLAG_ALLOW_FRACTION],
           'cursuskosten' => ['filter' => FILTER_SANITIZE_NUMBER_FLOAT, 'flags' => FILTER_FLAG_ALLOW_FRACTION],
+          'inschrijfslug' => FILTER_SANITIZE_STRING,
+          'indelingslug' => FILTER_SANITIZE_STRING,
       ]);
       $input['technieken'] = json_encode(filter_input(INPUT_POST, 'technieken', FILTER_SANITIZE_STRING, FILTER_REQUIRE_ARRAY));
       $input['vol'] = ($input['vol'] != '' ? 1 : 0);
@@ -1350,11 +1387,10 @@ class Kleistad {
           if ($inschrijvingen[$cursus_id]['ingedeeld'] == 0) {
             $gebruiker = get_userdata($cursist_id);
             $technieken = $inschrijvingen[$cursus_id]['technieken'];
-            //error_log(print_r($technieken,true));
             $to = "$gebruiker->first_name $gebruiker->last_name <$gebruiker->user_email>";
-            $message = $this->compose_email('kleistad_email_cursus_ingedeeld', [
-                'cursist_voornaam' => $gebruiker->first_name,
-                'cursist_achternaam' => $gebruiker->last_name,
+            $this->compose_email($to, 'inschrijving cursus', $cursus->indelingslug, [
+                'voornaam' => $gebruiker->first_name,
+                'achternaam' => $gebruiker->last_name,
                 'cursus_naam' => $cursus->naam,
                 'cursus_docent' => $cursus->docent,
                 'cursus_start_datum' => strftime('%A %d-%m-%y', strtotime($cursus->start_datum)),
@@ -1366,7 +1402,6 @@ class Kleistad {
                 'cursus_kosten' => '€ ' . number_format($cursus->cursuskosten, 2, ',', ''),
                 'cursus_inschrijfkosten' => '€ ' . number_format($cursus->inschrijfkosten, 2, ',', ''),
             ]);
-            $this->mail($to, 'inschrijving cursus', $message, true);
             $inschrijvingen[$cursus_id]['ingedeeld'] = 1;
             update_user_meta($cursist_id, self::INSCHRIJVINGEN, $inschrijvingen);
           }
@@ -1580,7 +1615,7 @@ class Kleistad {
         $fields = ['Achternaam', 'Voornaam', 'Email', 'Straat', 'Huisnr', 'Postcode', 'Plaats', 'Telefoon', 'Cursus', 'Cursus code', 'Inschrijf status', 'Technieken', 'Opmerking'];
         fputcsv($f, $fields, ';', '"');
 
-        $registraties = get_users(['orderby' => ['last_name']]); //(['meta_key' => self::CONTACTINFO, 'orderby' => ['last_name']]);
+        $registraties = get_users(['orderby' => ['last_name']]); 
         foreach ($registraties as $registratie) {
           $values = [$registratie->last_name, 
               $registratie->first_name, 
@@ -1599,7 +1634,6 @@ class Kleistad {
           $inschrijvingen = get_user_meta($registratie->ID, self::INSCHRIJVINGEN, true);
           if (is_array($inschrijvingen)) {
             foreach ($inschrijvingen as $cursus_id => $inschrijving) {
-              //error_log(print_r($inschrijving,true));
               $values_2 = $values;
               array_push ($values_2, $cursussen[$cursus_id]->naam,
                   $inschrijving['code'],
@@ -1619,7 +1653,7 @@ class Kleistad {
         $to = "$gebruiker->user_firstname $gebruiker->user_lastname <$gebruiker->user_email>";
         $message = "<p>Bijgaand het bestand in .CSV formaat met alle registrataties.</p>";
         $attachments = [$bijlage];
-        if ($this->mail($to, "Kleistad registratiebestand", $message, false, $attachments)) {
+        if ($this->compose_email($to, "Kleistad registratiebestand", $message, [], $attachments)) {
           $html .= '<div class="kleistad_succes"><p>Het bestand is per email verzonden.</p></div>';
         } else {
           $html .= '<div class="kleistad_fout"><p>Er is een fout opgetreden</p></div>';
@@ -1709,12 +1743,16 @@ class Kleistad {
         $saldo = number_format($nieuw, 2, ',', '');
 
         $to = "$stoker->first_name $stoker->last_name <$stoker->user_email>";
-        $message = "<p>Beste $stoker->first_name,</p><br />
-                    <p>je stooksaldo is verminderd met &euro; $bedrag en is nu <strong>&euro; $saldo</strong>.</p>";
-        $message .= $gebruiker->ID == $stoker->ID ? "<p>Je hebt " : "<p>$gebruiker->first_name $gebruiker->last_name heeft ";
-        $message .= "aangegeven dat jij {$stookdeel['perc']} % gebruikt hebt van de stook op $datum in de $transactie->naam.</p>
-                    <p>Je kunt op de website van Kleistad wanneer je ingelogd bent je persoonlijke <a href=\"http://www.kleistad.nl/leden/gegevens-stook/\">stookoverzicht</a> bekijken.</p>";
-        $this->mail($to, 'Kleistad kosten zijn verwerkt op het stooksaldo', $message);
+        $this->compose_email($to, 'Kleistad kosten zijn verwerkt op het stooksaldo', 'kleistad_email_stoookkosten_verwerkt', [
+            'voornaam' => $stoker->first_name, 
+            'achternaam' => $stoker->last_name,
+            'stoker' => $stoker->display_name,
+            'bedrag' => $bedrag,
+            'saldo' => $saldo,
+            'stookdeel' => $stookdeel['perc'],
+            'stookdatum' => $datum,
+            'oven' => $transactie->naam,
+        ]);
       }
     }
     /*
@@ -1727,7 +1765,6 @@ class Kleistad {
             WHERE RE.oven_id = OV.id AND gemeld = '0' AND verwerkt = '0' AND str_to_date(concat(jaar,'-',maand,'-',dag),'%Y-%m-%d') < '$vandaag'");
     foreach ($notificaties as $notificatie) {
       // send reminder email
-      $datum = strftime('%d-%m-%Y', mktime(0, 0, 0, $notificatie->maand, $notificatie->dag, $notificatie->jaar));
       $datum_verwerking = strftime('%d-%m-%Y', mktime(0, 0, 0, $notificatie->maand, $notificatie->dag + self::TERMIJN, $notificatie->jaar));
       $datum_deadline = strftime('%d-%m-%Y', mktime(0, 0, 0, $notificatie->maand, $notificatie->dag + self::TERMIJN - 1, $notificatie->jaar));
       $gebruiker = get_userdata($notificatie->gebruiker_id);
@@ -1739,10 +1776,14 @@ class Kleistad {
       $wpdb->update("{$wpdb->prefix}kleistad_reserveringen", ['gemeld' => 1], ['id' => $notificatie->id], ['%d'], ['%d']);
 
       $to = "$gebruiker->first_name $gebruiker->last_name <$gebruiker->user_email>";
-      $message = "<p>Beste $gebruiker->first_name,</p><br />
-                 <p>je hebt nu de $notificatie->naam in gebruik. Er zal op <strong>$datum_verwerking</strong> maximaal <strong>&euro; $kosten</strong> van je stooksaldo worden afgeschreven.</p>
-                 <p>Controleer voor deze datum of je de verdeling van de stookkosten onder de eventuele medestokers hebt doorgegeven in de <a href=\"http://www.kleistad.nl/leden/oven-reserveren/\">reservering</a> van de oven. Je kunt nog wijzigingen aanbrengen tot <strong>$datum_deadline</strong>. Daarna kan er niets meer gewijzigd worden!</p>";
-      $this->mail($to, "Kleistad oven gebruik op $datum", $message);
+      $this->compose_email($to, "Kleistad oven gebruik op $datum", 'kleistad_email_stookmelding', [
+        'voornaam' => $gebruiker->first_name,
+        'achternaam' => $gebruiker->last_name,
+        'bedrag' => $kosten,
+        'datum_verwerking' => $datum_verwerking,
+        'datum_deadline' => $datum_deadline,
+        'stookoven' => $notificatie->naam,
+      ]);
     }
     $this->log_saldo("verwerking stookkosten gereed.");
   }
