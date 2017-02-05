@@ -534,34 +534,6 @@ class Kleistad {
    * @param string $message
    * @param string $attachment
    */
-//  private function mail($to, $subject, $message, $copy = false, $attachment = []) {
-//    $headers[] = "Content-Type: text/html; charset=UTF-8";
-//    $headers[] = "From: Kleistad <$this->from_email>";
-//    $headers[] = "Bcc: $this->copy_email";
-//    if ($copy) {
-//      $headers[] = "Cc: $this->info_email";
-//    }
-//
-//    $htmlmessage = '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-//            <html xmlns="http://www.w3.org/1999/xhtml">
-//            <head>
-//            <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-//            <meta name="viewport" content="initial-scale=1.0"/>
-//            <meta name="format-detection" content="telephone=no"/>
-//            <title>' . $subject . '</title>
-//            </head>
-//            <body><table width="100%" border="0" align="center" cellpadding="0" cellspacing="0">
-//            <tr>
-//            <td align="left" style="font-family:helvetica; font-size:13pt" >' . preg_replace('/\s+/', ' ', $message) . '<br /><p>Met vriendelijke groet,</p>
-//            <p>Kleistad</p><p><a href="mailto:' . $this->info_email . '" target="_top">' . $this->info_email . '</a></p></td>                         
-//            </tr>
-//            <tr>
-//            <td align="center" style="font-family:calibri; font-size:9pt" >Deze e-mail is automatisch gegenereerd en kan niet beantwoord worden.</td>
-//            </tr></table></body>
-//            </html>';
-//    $resultaat = wp_mail($to, $subject, $htmlmessage, $headers, $attachment);
-//    return $resultaat;
-//  }
 
   /**
    * helper functie, zorg dat nederlandse format gebruikt wordt voor datums etc.
@@ -849,7 +821,7 @@ class Kleistad {
 
       $to = "$gebruiker->first_name $gebruiker->last_name <$gebruiker->user_email>";
       if ($this->compose_email($to, 'wijziging stooksaldo', 'kleistad_email_saldo_wijziging', 
-              ['vandaag' => $datum, 'via' => $via, 'bedrag' => $bedrag, 'voornaam' => $gebruiker->first_name, 'achternaam' => $gebruiker->last_name, ] )) {
+              ['datum' => $datum, 'via' => $via, 'bedrag' => $bedrag, 'voornaam' => $gebruiker->first_name, 'achternaam' => $gebruiker->last_name, ] )) {
         $huidig = (float) get_user_meta($gebruiker_id, 'stooksaldo', true);
         $saldo = $bedrag + $huidig;
         update_user_meta($gebruiker->ID, 'stooksaldo', $saldo);
@@ -1597,7 +1569,7 @@ class Kleistad {
     if (!$this->override()) {
       return '';
     }
-    wp_enqueue_style('kleistad-css');
+    $this->enqueue_scripts();
     $this->setlocale_NL();
 
     $html = '';
@@ -1743,7 +1715,7 @@ class Kleistad {
         $saldo = number_format($nieuw, 2, ',', '');
 
         $to = "$stoker->first_name $stoker->last_name <$stoker->user_email>";
-        $this->compose_email($to, 'Kleistad kosten zijn verwerkt op het stooksaldo', 'kleistad_email_stoookkosten_verwerkt', [
+        $this->compose_email($to, 'Kleistad kosten zijn verwerkt op het stooksaldo', 'kleistad_email_stookkosten_verwerkt', [
             'voornaam' => $stoker->first_name, 
             'achternaam' => $stoker->last_name,
             'stoker' => $stoker->display_name,
