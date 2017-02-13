@@ -112,6 +112,8 @@ class Kleistad {
       add_action('kleistad_kosten', [$this, 'update_ovenkosten']);
 
       add_filter('widget_text', 'do_shortcode');
+      add_filter('wp_mail_from', function($old) { return $this->from_email; });
+      add_filter('wp_mail_from_name', function($old) { return 'Kleistad'; });
 
       add_shortcode('kleistad_rapport', [$this, 'rapport_handler']);
       add_shortcode('kleistad_saldo', [$this, 'saldo_handler']);
@@ -122,6 +124,7 @@ class Kleistad {
       add_shortcode('kleistad_cursus_inschrijving', [$this, 'cursus_inschrijving_handler']);
       add_shortcode('kleistad_cursus_beheer', [$this, 'cursus_beheer_handler']);
       add_shortcode('kleistad_betalingen', [$this, 'betalingen_handler']);
+      add_shortcode('kleistad_registratie', [$this, 'registratie_handler']);
       add_shortcode('kleistad_registratie_overzicht', [$this, 'registratie_overzicht_handler']);
     }
   }
@@ -622,8 +625,10 @@ class Kleistad {
             </thead>
             <tbody>';
     foreach ($gebruikers as $gebruiker) {
-      $saldo = number_format((float) get_user_meta($gebruiker->id, 'stooksaldo', true), 2, ',', '');
-      $html .= "<tr><td>$gebruiker->display_name</td><td>&euro; $saldo</td></tr>";
+      if (user_can($gebruiker->id, self::RESERVEER)) {
+        $saldo = number_format((float) get_user_meta($gebruiker->id, 'stooksaldo', true), 2, ',', '');
+        $html .= "<tr><td>$gebruiker->display_name</td><td>&euro; $saldo</td></tr>";
+      }
     }
     $html .= '</tbody>
             </table>';
@@ -904,8 +909,10 @@ class Kleistad {
       if ($this->override()) {
         $html .= "<td colspan=\"2\"><select id=\"kleistad_gebruiker_id$oven\" class=\"kleistad_gebruiker\" data-oven=\"$oven\" >";
         foreach ($gebruikers as $gebruiker) {
-          $selected = ($gebruiker->id == $huidige_gebruiker->ID) ? "selected" : "";
-          $html .= "<option value=\"{$gebruiker->id}\" $selected>{$gebruiker->display_name}</option>";
+          if (user_can($gebruiker->id, self::RESERVEER)) {
+            $selected = ($gebruiker->id == $huidige_gebruiker->ID) ? "selected" : "";
+            $html .= "<option value=\"{$gebruiker->id}\" $selected>{$gebruiker->display_name}</option>";
+          }
         }
         $html .= "</select></td>";
       } else {
@@ -948,7 +955,7 @@ class Kleistad {
                         <td><select name=\"kleistad_stoker_id$oven\" class=\"kleistad_verdeel\" data-oven=\"$oven\" >
                         <option value=\"0\" >&nbsp;</option>";
         foreach ($gebruikers as $gebruiker) {
-          if (($gebruiker->id <> $huidige_gebruiker->ID) || $this->override()) {
+          if (user_can($gebruiker->id, self::RESERVEER) AND ($gebruiker->id <> $huidige_gebruiker->ID) || $this->override()) {
             $html .= "<option value=\"{$gebruiker->id}\">{$gebruiker->display_name}</option>";
           }
         }
@@ -985,7 +992,7 @@ class Kleistad {
    * 
    * @return string of WP_Error object
    */
-  private function registreer_gebruiker() {
+  private function registreer_gebruiker($gebruiker_id = 0) {
     // aanmelding voornaam, achternaam, emailadres. voornaam+volgnummer wordt gebruikersnaam
     $error = new WP_Error();
     $input = filter_input_array(INPUT_POST, [
@@ -1000,8 +1007,13 @@ class Kleistad {
         'plaats' => FILTER_SANITIZE_STRING,
         'telnr' => FILTER_SANITIZE_STRING,
     ]);
-    if (!$input['emailadres']) {
+    $input['emailadres'] = strtolower($input['emailadres']);
+    if (!filter_var($input['emailadres'], FILTER_VALIDATE_EMAIL)) {
       $error->add('verplicht', 'Een E-mail adres is verplicht');
+    }
+    $contactinfo['pcode'] = preg_replace('/\s+/', '', strtoupper($contactinfo['pcode']));
+    if (!filter_var($contactinfo['pcode'], FILTER_VALIDATE_REGEXP, ['options' => [ 'regexp'=> '/^[1-9][0-9]{3} ?(?!SA|SD|SS)[A-Z]{2}$/i' ] ])) {
+      $error->add('verplicht', 'Een geldige postcode is verplicht');
     }
     if (!$input['voornaam']) {
       $error->add('verplicht', 'Een voornaam is verplicht');
@@ -1013,24 +1025,29 @@ class Kleistad {
     if (!empty($err)) {
       return $error;
     }
-    $gebruiker_id = email_exists($input['emailadres']);
-    if ($gebruiker_id) {
-      $gebruiker_info = get_userdata($gebruiker_id);
-      if (!empty($gebruiker_info->roles) or (is_array($gebruiker_info->roles) and (count($gebruiker_info->roles) > 0 ) ) ) {
-        $error->add('account_aanwezig', 'Dit emailadres is al geregistreerd. U moet inloggen om een cursus aan te vragen');
-        return $error;
+    if ($gebruiker_id == 0) {
+      $gebruiker_id = email_exists($input['emailadres']);
+      if ($gebruiker_id) {
+        $gebruiker_info = get_userdata($gebruiker_id);
+        if (!empty($gebruiker_info->roles) or (is_array($gebruiker_info->roles) and (count($gebruiker_info->roles) > 0 ) ) ) {
+          $error->add('account_aanwezig', 'Dit emailadres is al geregistreerd. U moet inloggen om een cursus aan te vragen');
+          return $error;
+        }
+      } else {
+        $uniek = '';
+        $naam = sanitize_user($input['voornaam']);
+        while (username_exists($naam . $uniek)) {
+          $uniek = intval($uniek) + 1;
+        }
+        $paswoord = wp_generate_password(12, true);
+        $gebruiker_id = wp_create_user($naam . $uniek, $paswoord, $input['emailadres']);
       }
+      wp_update_user(['ID' => $gebruiker_id, 'first_name' => $input['voornaam'], 'last_name' => $input['achternaam'],
+          'display_name' => $input['voornaam'] . ' ' . $input['achternaam'], 'role' => '']);
     } else {
-      $uniek = '';
-      $naam = sanitize_user($input['voornaam']);
-      while (username_exists($naam . $uniek)) {
-        $uniek = intval($uniek) + 1;
-      }
-      $paswoord = wp_generate_password(12, true);
-      $gebruiker_id = wp_create_user($naam . $uniek, $paswoord, $input['emailadres']);
+      wp_update_user(['ID' => $gebruiker_id, 'first_name' => $input['voornaam'], 'last_name' => $input['achternaam'],
+          'display_name' => $input['voornaam'] . ' ' . $input['achternaam'], 'user_email' => $input['emailadres']]);
     }
-    wp_update_user(['ID' => $gebruiker_id, 'first_name' => $input['voornaam'], 'last_name' => $input['achternaam'],
-        'display_name' => $input['voornaam'] . ' ' . $input['achternaam'], 'role' => '']);
     update_user_meta($gebruiker_id, self::CONTACTINFO, $contactinfo);
     return $gebruiker_id;
   }
@@ -1045,7 +1062,7 @@ class Kleistad {
     $error = new WP_Error();
     $input = filter_input_array(INPUT_POST, [
         '_wpnonce' => FILTER_DEFAULT,
-        'cursus_id' => FILTER_SANITIZE_STRING,
+        'cursus_id' => FILTER_SANITIZE_NUMBER_INT,
         'technieken' => ['filter' => FILTER_SANITIZE_STRING, 'flags' => FILTER_FORCE_ARRAY],
         'opmerking' => FILTER_SANITIZE_STRING,
     ]);
@@ -1061,7 +1078,7 @@ class Kleistad {
       } else {
         $gebruiker_id = get_current_user_id();
       }
-      if (is_null($input['cursus_id'])) {
+      if (intval($input['cursus_id']) == 0) {
         $error->add('verplicht', 'Er is nog geen cursus gekozen');
         return $error;
       } else {
@@ -1106,8 +1123,8 @@ class Kleistad {
           'cursus_technieken' => is_array($technieken) ? implode(', ', $inschrijvingen[$cursus_id]['technieken']) : '',
           'cursus_opmerking' => $inschrijvingen[$cursus_id]['opmerking'],
           'cursus_code' => $inschrijvingen[$cursus_id]['code'],
-          'cursus_kosten' => '€ ' . number_format($cursus->cursuskosten, 2, ',', ''),
-          'cursus_inschrijfkosten' => '€ ' . number_format($cursus->inschrijfkosten, 2, ',', ''),
+          'cursus_kosten' => number_format($cursus->cursuskosten, 2, ',', ''),
+          'cursus_inschrijfkosten' => number_format($cursus->inschrijfkosten, 2, ',', ''),
         ]);
     } else {
       $error->add('security', 'Er is een interne fout geconstateerd. Probeer het eventueel op een later moment opnieuw');
@@ -1166,7 +1183,7 @@ class Kleistad {
               <td style="visibility:hidden" id="kleistad_cursus_boetseren" ><input type="checkbox" name="technieken[]" value="Boetseren">Boetseren</td>
             </tr>';
 
-    if (!is_user_logged_in()) {
+    if (!is_user_logged_in()) { 
       $html .= '<tr>
             <td><label for="kleistad_voornaam">Naam</label></td>
             <td><input type="text" name="voornaam" id="kleistad_voornaam" required maxlength="25" placeholder="voornaam" value="' . $input['voornaam'] . '" /></td>
@@ -1187,7 +1204,7 @@ class Kleistad {
           </tr>
           <tr>
             <td><label for="kleistad_pcode">Postcode, Plaats</label></td>
-            <td><input type="text" name="pcode" id="kleistad_pcode" required maxlength="10" placeholder="1234AB" pattern="^[1-9][0-9]{3}\s?[a-zA-Z]{2}$" value="' . $input['pcode'] . '" /></td>
+            <td><input type="text" name="pcode" id="kleistad_pcode" required maxlength="10" placeholder="1234AB" value="' . $input['pcode'] . '" /></td>
             <td colspan="2" ><input type="text" name="plaats" id="kleistad_plaats" required maxlength="50" placeholder="MijnWoonplaats" value="' . $input['plaats'] . '" /></td>
           </tr>';
     }
@@ -1226,6 +1243,54 @@ class Kleistad {
     }
   }
 
+  public function registratie_handler() {
+    $this->enqueue_scripts();
+    $html = '';
+
+    $gebruiker = wp_get_current_user();
+    if ($gebruiker->ID != 0) {
+      if (!is_null(filter_input(INPUT_POST, 'kleistad_wijzig_registratie'))) {
+        $resultaat = $this->registreer_gebruiker($gebruiker->ID);
+        $html .= (is_wp_error($resultaat)) ? $this->toon_fout($resultaat) : $this->toon_succes(false);
+      }
+      $contactinfo = get_user_meta($gebruiker->ID, self::CONTACTINFO, true);
+      if (!is_array($contactinfo)) {
+        $contactinfo = [ 'straat' => '', 'huisnr' => '', 'pcode' => '', 'plaats' => '', 'telnr' => ''];
+      }
+
+      $html .= '<form class="kleistad_form" action="' . get_permalink() . '" method="POST">' .
+              wp_nonce_field('kleistad_wijzig_registratie', '_wpnonce', false, false) .
+          '<table class="kleistad_form" >
+            <tr>
+              <td><label for="kleistad_voornaam">Naam</label></td>
+              <td><input type="text" name="voornaam" id="kleistad_voornaam" required maxlength="25" placeholder="voornaam" value="' . $gebruiker->user_firstname . '" /></td>
+              <td colspan="2" ><input type="text" name="achternaam" id="kleistad_achternaam" required maxlength="25" placeholder="achternaam" value="' . $gebruiker->user_lastname . '" /></td>
+            </tr>
+            <tr>
+              <td><label for="kleistad_emailadres">Email adres</label></td>
+              <td colspan="3" ><input type="email" name="emailadres" id="kleistad_emailadres" required value="' . $gebruiker->user_email . '" /></td>
+            </tr>
+            <tr>
+              <td><label for="kleistad_telnr">Telefoon</label></td>
+              <td colspan="3" ><input type="text" name="telnr" id="kleistad_telnr" maxlength="15" placeholder="0123456789" value="' . $contactinfo['telnr'] . '" /></td>
+            </tr>
+            <tr>    
+              <td><label for="kleistad_straat">Straat, nr</label></td>
+              <td colspan="2" ><input type="text" name="straat" id="kleistad_straat" required placeholder="straat" maxlength="50" value="' . $contactinfo['straat'] . '" /></td>
+              <td><input type="text" name="huisnr" id="kleistad_huisnr" required maxlength="10" placeholder="nr" value="' . $contactinfo['huisnr'] . '" /></td>
+            </tr>
+            <tr>
+              <td><label for="kleistad_pcode">Postcode, Plaats</label></td>
+              <td><input type="text" name="pcode" id="kleistad_pcode" required maxlength="10" placeholder="1234AB" value="' . $contactinfo['pcode'] . '" /></td>
+              <td colspan="2" ><input type="text" name="plaats" id="kleistad_plaats" required maxlength="50" placeholder="MijnWoonplaats" value="' . $contactinfo['plaats'] . '" /></td>
+            </tr>
+        </table>
+        <button type="submit" name="kleistad_wijzig_registratie" id="kleistad_wijzig_registratie" >Opslaan</button>
+        </form>';
+    }
+    return $html;
+  }
+  
   /**
    * shortcode handler voor het cursus inschrijf formulier
    *
@@ -1371,8 +1436,8 @@ class Kleistad {
                 'cursus_eind_tijd' => strftime('%H:%M', strtotime($cursus->eind_tijd)),
                 'cursus_technieken' => is_array($technieken) ? implode(', ', $technieken) : '',
                 'cursus_code' => $inschrijvingen[$cursus_id]['code'],
-                'cursus_kosten' => '€ ' . number_format($cursus->cursuskosten, 2, ',', ''),
-                'cursus_inschrijfkosten' => '€ ' . number_format($cursus->inschrijfkosten, 2, ',', ''),
+                'cursus_kosten' => number_format($cursus->cursuskosten, 2, ',', ''),
+                'cursus_inschrijfkosten' => number_format($cursus->inschrijfkosten, 2, ',', ''),
             ]);
             $inschrijvingen[$cursus_id]['ingedeeld'] = 1;
             update_user_meta($cursist_id, self::INSCHRIJVINGEN, $inschrijvingen);
@@ -1535,6 +1600,9 @@ class Kleistad {
     $this->enqueue_scripts();
     $this->setlocale_NL();
 
+    global $wpdb;
+    $cursussen = $wpdb->get_results("SELECT id, naam FROM {$wpdb->prefix}kleistad_cursussen WHERE eind_datum >= CURDATE()", OBJECT_K);
+
     $html = '';
     if (!is_null(filter_input(INPUT_POST, 'kleistad_registreer_betalingen', FILTER_SANITIZE_STRING))) {
       $resultaat = $this->registreer_betalingen();
@@ -1548,7 +1616,7 @@ class Kleistad {
     foreach ($inschrijvers as $inschrijver) {
       $inschrijvingen = get_user_meta($inschrijver->ID, self::INSCHRIJVINGEN, true);
       foreach ($inschrijvingen as $cursus_id => $inschrijving) {
-        if (($inschrijving['i_betaald'] == 0) || ($inschrijving['c_betaald'] == 0)) {
+        if ((array_key_exists ($cursus_id, $cursussen)) AND (($inschrijving['i_betaald'] == 0) || ($inschrijving['c_betaald'] == 0))) {
           $html .= '<tr><td>' . $inschrijving['datum'] . '</td><td>' . $inschrijving['code'] . '</td><td>' . $inschrijver->display_name . '</td>
             <td><input type="checkbox" name="kleistad_i_betaald[]" value="' . $inschrijver->ID . ' ' . $cursus_id . '"' . ($inschrijving['i_betaald'] ? ' checked' : '') . ' ></td>
             <td><input type="checkbox" name="kleistad_c_betaald[]" value="' . $inschrijver->ID . ' ' . $cursus_id . '"' . ($inschrijving['c_betaald'] ? ' checked' : '') . ' ></td></tr>';
@@ -1698,7 +1766,7 @@ class Kleistad {
         if (intval($stookdeel['id']) == 0) {
           continue;
         }
-        $stoker = get_userdata($stookdeel['id']);
+        $medestoker = get_userdata($stookdeel['id']);
 
         $regeling = $this->lees_regeling($stookdeel['id'], $transactie->oven_id);
         $kosten = ( $regeling < 0 ) ? $transactie->kosten : $regeling;
@@ -1707,23 +1775,23 @@ class Kleistad {
         $huidig = (float) get_user_meta($stookdeel['id'], 'stooksaldo', true);
         $nieuw = ($huidig == '') ? 0 - (float) $prijs : round((float) $huidig - (float) $prijs, 2);
 
-        $this->log_saldo("wijziging saldo $gebruiker->display_name van $huidig naar $nieuw, stook op $datum.");
+        $this->log_saldo("wijziging saldo $medestoker->display_name van $huidig naar $nieuw, stook op $datum.");
         update_user_meta($stookdeel['id'], 'stooksaldo', $nieuw);
         $wpdb->update("{$wpdb->prefix}kleistad_reserveringen", ['verwerkt' => true], ['id' => $transactie->id], ['%d'], ['%d']);
 
         $bedrag = number_format($prijs, 2, ',', '');
         $saldo = number_format($nieuw, 2, ',', '');
 
-        $to = "$stoker->first_name $stoker->last_name <$stoker->user_email>";
+        $to = "$medestoker->first_name $medestoker->last_name <$medestoker->user_email>";
         $this->compose_email($to, 'Kleistad kosten zijn verwerkt op het stooksaldo', 'kleistad_email_stookkosten_verwerkt', [
-            'voornaam' => $stoker->first_name, 
-            'achternaam' => $stoker->last_name,
-            'stoker' => $stoker->display_name,
+            'voornaam' => $medestoker->first_name, 
+            'achternaam' => $medestoker->last_name,
+            'stoker' => $gebruiker->display_name,
             'bedrag' => $bedrag,
             'saldo' => $saldo,
             'stookdeel' => $stookdeel['perc'],
             'stookdatum' => $datum,
-            'oven' => $transactie->naam,
+            'stookoven' => $transactie->naam,
         ]);
       }
     }
