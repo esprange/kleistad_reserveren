@@ -477,6 +477,13 @@ class Kleistad {
     </div>
     <?php
   }
+  /**
+   * helper functie, maak een nonce field, maar dan zonder id (fout in $this->nonce_field functie)
+   * 
+   */
+  private function nonce_field($actie) {
+    return '<input type="hidden" name="_wpnonce" value="' . wp_create_nonce($actie) . '" />';
+  }
 
   /**
    * helper functie, haalt email tekst vanuit pagina en vervangt alle placeholders en verzendt de mail
@@ -842,7 +849,7 @@ class Kleistad {
       $html = '<p>Je huidige stooksaldo is <strong>&euro; ' . $saldo . '</strong></p>
         <p>Je kunt onderstaand melden dat je het saldo hebt aangevuld</p><hr />
         <form class="kleistad_form" action="' . get_permalink() . '" method="POST">';
-      $html .= wp_nonce_field('kleistad_saldo' . $huidige_gebruiker_id . $saldo, '_wpnonce', false, false);
+      $html .= $this->nonce_field('kleistad_saldo' . $huidige_gebruiker_id . $saldo);
       $html .= '<input type="hidden" name="kleistad_gebruiker_id" value="' . $huidige_gebruiker_id . '" />
         <fieldset><legend>Betaald</legend>
         <label for="kleistad_bank">Bank
@@ -1163,7 +1170,7 @@ class Kleistad {
       $input = ['emailadres' => '', 'voornaam' => '', 'achternaam' => '', 'straat' => '', 'huisnr' => '', 'pcode' => '', 'plaats' => '', 'telnr' => '', 'cursus_keuze' => '', 'opmerking' => ''];
     }
     $html = '<form class="kleistad_form" action="' . get_permalink() . '" method="POST">' .
-            wp_nonce_field('kleistad_cursus_inschrijving', '_wpnonce', false, false) .
+            $this->nonce_field('kleistad_cursus_inschrijving') .
             '<table class="kleistad_form" >';
 
     foreach ($cursussen as $cursus) {
@@ -1259,7 +1266,7 @@ class Kleistad {
       }
 
       $html .= '<form class="kleistad_form" action="' . get_permalink() . '" method="POST">' .
-              wp_nonce_field('kleistad_wijzig_registratie', '_wpnonce', false, false) .
+              $this->nonce_field('kleistad_wijzig_registratie') .
           '<table class="kleistad_form" >
             <tr>
               <td><label for="kleistad_voornaam">Naam</label></td>
@@ -1316,7 +1323,7 @@ class Kleistad {
    */
   private function toon_cursus_gegevens_formulier() {
     $html = '<div id="kleistad_cursus_gegevens" >
-        <form id="kleistad_form_cursus_gegevens" action="#" method="post" >' . wp_nonce_field('kleistad_cursus_gegevens', '_wpnonce', false, false) .
+        <form id="kleistad_form_cursus_gegevens" action="#" method="post" >' . $this->nonce_field('kleistad_cursus_gegevens') .
             '<input type="hidden" name="id" id="kleistad_cursus_id_1" />
           <table class="kleistad_form" >
             <tr><th>Naam</th><td colspan="3"><input type="text" name="naam" id="kleistad_cursus_naam" placeholder="Bijv. cursus draaitechnieken" required /></td></tr>
@@ -1338,7 +1345,7 @@ class Kleistad {
             <tr><th>Inschrijf kosten</th><td><input type="number" name="inschrijfkosten" id="kleistad_inschrijfkosten" value="25" min="0" required ></td>
                 <th>Cursus kosten, excl. inschrijf kosten</th><td><input type="number" name="cursuskosten" id="kleistad_cursuskosten" value="110" min="0" required ></td></tr>
             <tr><th>Cursus vol</th><td><input type="checkbox" id="kleistad_vol" name="vol" ></td><th>Cursus vervallen</th><td><input type="checkbox" name="vervallen" id="kleistad_vervallen" ></td></tr>
-            <tr><th>Inschrijf email</th><td colspan="3"><input type="text" name="inschrijfslug" id="kleistad_inschrijfslug" value="kleistad_email_cursus_aanvraag" requires /></td></tr>
+            <tr><th>Inschrijf email</th><td colspan="3"><input type="text" name="inschrijfslug" id="kleistad_inschrijfslug" value="kleistad_email_cursus_aanvraag" required /></td></tr>
             <tr><th>Indeling email</th><td colspan="3"><input type="text" name="indelingslug" id="kleistad_indelingslug" value="kleistad_email_cursus_ingedeeld" required /></td></tr>
           </table>
           <button type="submit" name="kleistad_bewaar_cursus_gegevens">Opslaan</button>
@@ -1388,7 +1395,7 @@ class Kleistad {
    */
   private function toon_cursus_indeling_formulier() {
     $html = '<div id="kleistad_cursus_indeling" >
-        <form id="kleistad_form_cursus_indeling" action="#" method="post" >' . wp_nonce_field('kleistad_cursus_indeling', '_wpnonce', false, false) .
+        <form id="kleistad_form_cursus_indeling" action="#" method="post" >' . $this->nonce_field('kleistad_cursus_indeling') .
             '<input type="hidden" name="cursus_id" id="kleistad_cursus_id_2" />
              <input type="hidden" name="indeling_lijst" id="kleistad_indeling_lijst" /> 
           <table class="kleistad_form" >
@@ -1609,7 +1616,7 @@ class Kleistad {
       $html .= (is_wp_error($resultaat)) ? $this->toon_fout($resultaat) : $this->toon_succes(false);
     }
 
-    $html .= '<form id="kleistad_form_betalingen" action="#" method="post" >' . wp_nonce_field('kleistad_betalingen', '_wpnonce', false, false) .
+    $html .= '<form id="kleistad_form_betalingen" action="#" method="post" >' . $this->nonce_field('kleistad_betalingen') .
             '<table class="kleistad_tabel" >
           <tr><th>Datum<br/>inschrijving</th><th>Code</th><th>Naam</th><th>Inschrijfgeld<br/>betaald</th><th>Cursusgeld<br/>betaald</th></tr>';
     $inschrijvers = get_users(['meta_key' => self::INSCHRIJVINGEN]);
@@ -1702,7 +1709,7 @@ class Kleistad {
     }
 
     $html .= '<div id="kleistad_deelnemer_info"><table class="kleistad_tabel" id="kleistad_deelnemer_tabel" ></table></div>
-            <form action="#" method="post" >' . wp_nonce_field('kleistad_registratie_bestand', '_wpnonce', false, false) .
+            <form action="#" method="post" >' . $this->nonce_field('kleistad_registratie_bestand') .
             '<table class="kleistad_tabel" >
             <tr><th>Achternaam</th><th>Voornaam</th><th>Straat</th><th>Huisnr</th><th>Postcode</th><th>Plaats</th><th>Email</th><th>Telnr</th></tr>';
     $registraties = get_users(['orderby' => ['last_name']]);
@@ -1728,7 +1735,7 @@ class Kleistad {
               $contactinfo['pcode'] . '</td><td>' .
               $contactinfo['plaats'] . '</td><td>' .
               $registratie->user_email . '</td><td>' .
-              $contactinfo['telnr'] . '</td><tr>';
+              $contactinfo['telnr'] . '</td></tr>';
     }
     $html .= '</table>
           <button type="submit" name="kleistad_registratiebestand_verzenden" >Bestand aanmaken</button>
@@ -2025,5 +2032,4 @@ class Kleistad {
     $request->set_param('oven_id', absint($oven)); // zorg dat het over_id correct is
     return $this->callback_show_reservering($request);
   }
-
 }
