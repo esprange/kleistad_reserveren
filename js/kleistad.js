@@ -18,10 +18,19 @@
             }
             );
         });
+        
+        $('.kleistad_form_popup').each(function () {
+            $(this).dialog({
+                autoOpen: false,
+                height: 550,
+                width: 360,
+                modal: true
+             });
+         });
 
         $('#kleistad_cursus').dialog({
             autoOpen: false,
-            height: 500,
+            height: 550,
             width: 750,
             modal: false,
             open: function (event, ui) {
@@ -41,6 +50,10 @@
             }
         });
         
+        $('.kleistad_deelnemer_info').hover(function() {
+            $(this).css('cursor', 'pointer');
+            $(this).toggleClass('kleistad_hover');
+        });
         $('.kleistad_deelnemer_info').click(function() {
             $('#kleistad_deelnemer_info').dialog('open');
             var inschrijvingen = $(this).data('inschrijvingen');
@@ -72,8 +85,11 @@
 //            $("#ui-dialog-title-dialog").hide();
 //            $(".ui-dialog-titlebar").removeClass('ui-widget-header');
 //        });
-
-        $('.kleistad_cursus_beheer').click(function() {
+        $('.kleistad_cursus_info').hover(function() {
+            $(this).css('cursor', 'pointer');
+            $(this).toggleClass('kleistad_hover');
+        });
+        $('.kleistad_cursus_info').click(function() {
             $('.kleistad_fout').empty();
             $('.kleistad_succes').empty();
             $('#kleistad_cursus').dialog('open');
@@ -214,7 +230,10 @@
         });
 
         $("body").on("click", '.kleistad_box', function () {
+            var form = $(this).data('form');
+            $('#kleistad_oven' + form.oven).dialog('open');
             kleistad_form($(this).data('form'));
+            return false;
         });
 
         $("body").on("click", '.kleistad_muteer', function () {
@@ -223,6 +242,11 @@
 
         $("body").on("click", '.kleistad_verwijder', function () {
             kleistad_muteer($(this).data('oven'), -1);
+        });
+
+        $("body").on("click", '.kleistad_sluit', function () {
+            var oven = $(this).data('oven');
+            $('#kleistad_oven' + oven).dialog('close');
         });
     });
     
@@ -321,9 +345,9 @@
                 oven_id: id
             }
         }).done(function (data) {
-            var top = $('#kleistad' + data.id).scrollTop();
+  //          var top = $('#kleistad' + data.id).scrollTop();
             $('#reserveringen' + data.id).html(data.html);
-            $('#kleistad' + data.id).scrollTop(top);
+  //          $('#kleistad' + data.id).scrollTop(top);
         }).fail(function (jqXHR, textStatus, errorThrown) {
             if ('undefined' != typeof jqXHR.responseJSON.message) {
                 kleistad_falen(jqXHR.responseJSON.message);
@@ -334,8 +358,8 @@
     }
 
     function kleistad_muteer(id, wijzigen) {
-        self.parent.tb_remove();
-
+        //self.parent.tb_remove();
+        $('#kleistad_oven' + id).dialog('close');
         var stoker_percs = $('[name=kleistad_stoker_perc' + id + ']').toArray();
         var stoker_ids = $('[name=kleistad_stoker_id' + id + ']').toArray();
         var verdeling = {};
@@ -363,9 +387,9 @@
                 opmerking: $('#kleistad_opmerking' + id).val()
             }
         }).done(function (data) {
-            var top = $('#kleistad' + data.id).scrollTop();
+//            var top = $('#kleistad' + data.id).scrollTop();
             $('#reserveringen' + data.id).html(data.html);
-            $('#kleistad' + data.id).scrollTop(top);
+//            $('#kleistad' + data.id).scrollTop(top);
         }).fail(function (jqXHR, textStatus, errorThrown) {
             if ('undefined' != typeof jqXHR.responseJSON.message) {
                 kleistad_falen(jqXHR.responseJSON.message);

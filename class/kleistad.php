@@ -418,7 +418,7 @@ class Kleistad {
             </tbody>
         </table>
         <h3>Nieuwe oven aanmaken</h3> 
-        <form class="kleistad_form" action="<?php echo get_permalink() ?>" method="POST" >
+        <form action="<?php echo get_permalink() ?>" method="POST" >
             <table class="form-table">
                 <tbody>
                     <tr>
@@ -536,14 +536,6 @@ class Kleistad {
     $resultaat = wp_mail($to, $subject, $htmlmessage, $headers, $attachment);
     return $resultaat;
   }
-
-  /**
-   * wrapper voor wp_mail functie
-   * @param string $to
-   * @param string $subject
-   * @param string $message
-   * @param string $attachment
-   */
 
   /**
    * helper functie, zorg dat nederlandse format gebruikt wordt voor datums etc.
@@ -796,7 +788,7 @@ class Kleistad {
       }
     } else {
       $huidige_gebruiker_id = get_current_user_id();
-      $html = '<form class="kleistad_form" action="' . get_permalink() . '" method="POST" >
+      $html = '<form action="' . get_permalink() . '" method="POST" >
         <input type="hidden" name="kleistad_gebruiker_id" value="' . $huidige_gebruiker_id . '" />
         <label for="kleistad_vanaf_datum" >Vanaf</label>&nbsp;
         <input type="date" name="kleistad_vanaf_datum" id="kleistad_vanaf_datum" /><br /><br />
@@ -848,7 +840,7 @@ class Kleistad {
       $saldo = number_format((float) get_user_meta($huidige_gebruiker_id, 'stooksaldo', true), 2, ',', '');
       $html = '<p>Je huidige stooksaldo is <strong>&euro; ' . $saldo . '</strong></p>
         <p>Je kunt onderstaand melden dat je het saldo hebt aangevuld</p><hr />
-        <form class="kleistad_form" action="' . get_permalink() . '" method="POST">';
+        <form action="' . get_permalink() . '" method="POST">';
       $html .= $this->nonce_field('kleistad_saldo' . $huidige_gebruiker_id . $saldo);
       $html .= '<input type="hidden" name="kleistad_gebruiker_id" value="' . $huidige_gebruiker_id . '" />
         <fieldset><legend>Betaald</legend>
@@ -885,7 +877,6 @@ class Kleistad {
       return '';
     }
     $this->enqueue_scripts();
-    add_thickbox();
     $oven = 0;
 
     extract(shortcode_atts(['oven' => 'niet ingevuld'], $atts, 'kleistad'));
@@ -903,7 +894,7 @@ class Kleistad {
                     data-oven=\"$oven\" data-maand=\"" . date('n') . "\" data-jaar=\"" . date('Y') . "\" >
                     <tr><th>de reserveringen worden opgehaald...</th></tr>
                 </table>
-                <div id =\"kleistad_oven$oven\" class=\"thickbox kleistad_form_popup\">
+                <div id =\"kleistad_oven$oven\" class=\"kleistad_form_popup\">
                     <form id=\"kleistad_form$oven\" action=\"#\" method=\"post\">
                     <table class=\"kleistad_form\">
                     <thead>
@@ -982,7 +973,7 @@ class Kleistad {
                     <tr>
                         <th><button type=\"button\" id=\"kleistad_muteer$oven\" class=\"kleistad_muteer\" data-oven=\"$oven\" >Wijzig</button></th>
                         <th><button type=\"button\" id=\"kleistad_verwijder$oven\" class=\"kleistad_verwijder\" data-oven=\"$oven\" >Verwijder</button></th>
-                        <th><button type=\"button\" onclick=\"self.parent.tb_remove();return false\" >Sluit</button></th>
+                        <th><button type=\"button\" id=\"kleistad_sluit$oven\" class=\"kleistad_sluit\" data-oven=\"$oven\" >Sluit</button></th>
                     </tr>
                 </tfoot>
             </table>
@@ -1169,7 +1160,7 @@ class Kleistad {
     } else {
       $input = ['emailadres' => '', 'voornaam' => '', 'achternaam' => '', 'straat' => '', 'huisnr' => '', 'pcode' => '', 'plaats' => '', 'telnr' => '', 'cursus_keuze' => '', 'opmerking' => ''];
     }
-    $html = '<form class="kleistad_form" action="' . get_permalink() . '" method="POST">' .
+    $html = '<form action="' . get_permalink() . '" method="POST">' .
             $this->nonce_field('kleistad_cursus_inschrijving') .
             '<table class="kleistad_form" >';
 
@@ -1265,7 +1256,7 @@ class Kleistad {
         $contactinfo = [ 'straat' => '', 'huisnr' => '', 'pcode' => '', 'plaats' => '', 'telnr' => ''];
       }
 
-      $html .= '<form class="kleistad_form" action="' . get_permalink() . '" method="POST">' .
+      $html .= '<form action="' . get_permalink() . '" method="POST">' .
               $this->nonce_field('kleistad_wijzig_registratie') .
           '<table class="kleistad_form" >
             <tr>
@@ -1467,7 +1458,7 @@ class Kleistad {
     global $wpdb;
     $html = '<table class="kleistad_tabel">
       <thead>
-        <tr><th>Naam</th><th>Docent</th><th>Periode</th><th>Tijd</th><th>Technieken</th></tr>
+        <tr><th>Code</th><th>Naam</th><th>Docent</th><th>Periode</th><th>Tijd</th><th>Technieken</th></tr>
       </thead>
       <tbody>';
 
@@ -1494,18 +1485,20 @@ class Kleistad {
         }
       }
       $style = $cursus->vol ? 'style="background-color:lightblue"' : ($cursus->vervallen ? 'style="background-color:lightgray"' : '');
-      $html .= '<tr ' . $style . ' ><td><a class="kleistad_cursus_beheer" href="#" rel="bookmark" data-cursus=\'' .
-              json_encode($cursus) . '\' data-wachtlijst= \'' . json_encode($wachtlijst) . '\' data-ingedeeld= \'' . json_encode($ingedeeld) . '\' >' . $cursus->naam . '</a></td>';
-      $html .= '<td>' . $cursus->docent . '</td>';
-      $html .= '<td>' . strftime('%d-%m', strtotime($cursus->start_datum)) . ' .. ' . strftime('%d-%m', strtotime($cursus->eind_datum)) . '</td>';
-      $html .= '<td>' . strftime('%H:%M', strtotime($cursus->start_tijd)) . ' - ' . strftime('%H:%M', strtotime($cursus->eind_tijd)) . '</td>';
-      $html .= '<td>';
+      $html .= '<tr ' . $style . 'class="kleistad_cursus_info"' . 
+            ' data-cursus=\'' . json_encode($cursus) . '\' data-wachtlijst= \'' . json_encode($wachtlijst) . '\' data-ingedeeld= \'' . json_encode($ingedeeld) . '\' >
+              <td>C' . $cursus->id . '</td><td>' . $cursus->naam . '</td>
+              <td>' . $cursus->docent . '</td>
+              <td>' . strftime('%d-%m', strtotime($cursus->start_datum)) . ' .. ' . strftime('%d-%m', strtotime($cursus->eind_datum)) . '</td>
+              <td>' . strftime('%H:%M', strtotime($cursus->start_tijd)) . ' - ' . strftime('%H:%M', strtotime($cursus->eind_tijd)) . '</td>
+              <td>';
       $technieken = json_decode ($cursus->technieken, true);
       if (is_array($technieken)) {
         foreach ($technieken as $techniek) {
           $html .= $techniek . '<br/>';
         }
       }
+      $html .= '</td></tr>';
     }
     $html .= '</tbody></table>';
     return $html;
@@ -1541,8 +1534,7 @@ class Kleistad {
             <li><a href="#kleistad_cursus_indeling">Cursus indeling</a></li>
           </ul>' . $this->toon_cursus_gegevens_formulier() . $this->toon_cursus_indeling_formulier() . '
         </div>
-      </div>' . $this->toon_openstaande_cursussen() .
-            '<button id="kleistad_cursus_toevoegen" >Toevoegen</button>';
+      </div>' . $this->toon_openstaande_cursussen() . '<button id="kleistad_cursus_toevoegen" >Toevoegen</button>';
 
     return $html;
   }
@@ -1942,7 +1934,7 @@ class Kleistad {
                 'verwijderbaar' => $verwijderbaar,
                 'gereserveerd' => $gereserveerd,];
             $html .= "
-                    <th><a class=\"thickbox kleistad_box\"  href=\"#TB_inline?width=330&height=500&inlineId=kleistad_oven$oven\" rel=\"bookmark\"
+                    <th><a class=\"kleistad_box\"  href=\"#\" rel=\"bookmark\"
                         data-form='" . json_encode($form_data) . "'
                         id=\"kleistad_$dagteller\">$dagteller $dagnamen[$weekdag] </a></th>";
           } else {

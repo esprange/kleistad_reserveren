@@ -23,6 +23,10 @@ Description: stylesheet functions voor kleistad_reserveren plugin
   border: 2px solid #DDD;
 }
 
+.kleistad_hover {
+    color: blue;
+}
+
 input.kleistad_datum {
     width: 6em;
 }
@@ -79,7 +83,7 @@ table.kleistad_form button {
 }
 table.kleistad_form option, input {
     font-size: small;
-    height: 1.7em;
+    height: 2.1em;
 }
 table.kleistad_form input[type=number] {
     width: 5em;
@@ -95,6 +99,7 @@ table.kleistad_reserveringen {
     border-collapse: collapse;
     border-spacing: 0;
     border-style: none;
+    font-size: small;
 }
 table.kleistad_reserveringen th {
     border-style:solid;
