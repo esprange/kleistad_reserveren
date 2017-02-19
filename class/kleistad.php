@@ -27,6 +27,11 @@ class Kleistad {
   protected static $instance = NULL;
 
   /**
+   * @var reserveren_form vlag
+   */
+  protected static $reserveren_form = false;
+
+  /**
    * get_instance maakt de plugin object instance aan
    * @return type Kleistad
    */
@@ -654,7 +659,7 @@ class Kleistad {
             "SELECT RE.id AS id, oven_id, naam, kosten, soortstook, temperatuur, programma,gebruiker_id, dag, maand, jaar, verdeling, verwerkt FROM
                 {$wpdb->prefix}kleistad_reserveringen RE, {$wpdb->prefix}kleistad_ovens OV
             WHERE RE.oven_id = OV.id AND str_to_date(concat(jaar,'-',maand,'-',dag),'%Y-%m-%d') > '$datum_begin' 
-                    ORDER BY jaar, maand, dag ASC");
+                    ORDER BY jaar DESC, maand DESC, dag DESC");
     $html = "<table class=\"kleistad_rapport\">
             <thead>
                 <tr><th colspan=\"9\">Stookrapport voor $huidige_gebruiker->display_name (je huidig saldo is &euro; $saldo)</th></tr>
@@ -716,7 +721,7 @@ class Kleistad {
               "SELECT RE.id AS id, oven_id, naam, kosten, soortstook, temperatuur, programma,gebruiker_id, dag, maand, jaar, verdeling, verwerkt FROM
                     {$wpdb->prefix}kleistad_reserveringen RE, {$wpdb->prefix}kleistad_ovens OV
                 WHERE RE.oven_id = OV.id AND str_to_date(concat(jaar,'-',maand,'-',dag),'%Y-%m-%d') BETWEEN '$vanaf_datum' AND '$tot_datum'
-                        ORDER BY jaar, maand, dag ASC");
+                        ORDER BY jaar ASC, maand ASC, dag ASC");
       $medestokers = [];
       foreach ($stoken as $stook) {
         if ($stook->verdeling == null) {
@@ -891,35 +896,38 @@ class Kleistad {
       $huidige_gebruiker = wp_get_current_user();
       $html = "<h1 id=\"kleistad$oven\">Reserveringen voor de $naam</h1>
                 <table id=\"reserveringen$oven\" class=\"kleistad_reserveringen\"
-                    data-oven=\"$oven\" data-maand=\"" . date('n') . "\" data-jaar=\"" . date('Y') . "\" >
+                    data-oven_id=\"$oven\" data-oven-naam=\"$naam\" data-maand=\"" . date('n') . "\" data-jaar=\"" . date('Y') . "\" >
                     <tr><th>de reserveringen worden opgehaald...</th></tr>
-                </table>
-                <div id =\"kleistad_oven$oven\" class=\"kleistad_form_popup\">
-                    <form id=\"kleistad_form$oven\" action=\"#\" method=\"post\">
+                </table>";
+      if (!self::$reserveren_form) {
+        self::$reserveren_form = true;
+        $html .= "<div id =\"kleistad_oven\" class=\"kleistad_form_popup\">
+                    <form id=\"kleistad_form\" action=\"#\" method=\"post\">
+                    <input id=\"kleistad_oven_id\" type=\"hidden\" >
                     <table class=\"kleistad_form\">
                     <thead>
                         <tr>
-                        <th colspan=\"3\">Reserveer $naam op <span id=\"kleistad_wanneer$oven\"></span></th>
+                        <th colspan=\"3\">Reserveer de oven op <span id=\"kleistad_wanneer\"></span></th>
                         </tr>
                     </thead>
                     <tbody>
                             <tr><td></td>";
-      if ($this->override()) {
-        $html .= "<td colspan=\"2\"><select id=\"kleistad_gebruiker_id$oven\" class=\"kleistad_gebruiker\" data-oven=\"$oven\" >";
-        foreach ($gebruikers as $gebruiker) {
-          if (user_can($gebruiker->id, self::RESERVEER)) {
-            $selected = ($gebruiker->id == $huidige_gebruiker->ID) ? "selected" : "";
-            $html .= "<option value=\"{$gebruiker->id}\" $selected>{$gebruiker->display_name}</option>";
+        if ($this->override()) {
+          $html .= "<td colspan=\"2\"><select id=\"kleistad_gebruiker_id\" class=\"kleistad_gebruiker\" >";
+          foreach ($gebruikers as $gebruiker) {
+            if (user_can($gebruiker->id, self::RESERVEER)) {
+              $selected = ($gebruiker->id == $huidige_gebruiker->ID) ? "selected" : "";
+              $html .= "<option value=\"{$gebruiker->id}\" $selected>{$gebruiker->display_name}</option>";
+            }
           }
+          $html .= "</select></td>";
+        } else {
+          $html .= "<td colspan=\"2\"><input type =\"hidden\" id=\"kleistad_gebruiker_id\" ></td>";
         }
-        $html .= "</select></td>";
-      } else {
-        $html .= "<td colspan=\"2\"><input type =\"hidden\" id=\"kleistad_gebruiker_id$oven\"></td>";
-      }
-      $html .= "</tr>
+        $html .= "</tr>
                     <tr>
                         <td><label>Soort stook</label></td>
-                        <td colspan=\"2\"><select id=\"kleistad_soortstook$oven\">
+                        <td colspan=\"2\"><select id=\"kleistad_soortstook\">
                             <option value=\"Biscuit\" selected>Biscuit</option>
                             <option value=\"Glazuur\" >Glazuur</option>
                             <option value=\"Overig\" >Overig</option>
@@ -927,15 +935,15 @@ class Kleistad {
                     </tr>
                     <tr>
                         <td><label>Temperatuur</label></td>
-                        <td colspan=\"2\"><input type=\"number\" min=\"100\" max=\"1300\" id=\"kleistad_temperatuur$oven\"></td>
+                        <td colspan=\"2\"><input type=\"number\" min=\"100\" max=\"1300\" id=\"kleistad_temperatuur\"></td>
                     </tr>
                     <tr>
                         <td><label>Programma</label></td>
-                        <td colspan=\"2\"><input type=\"number\" min=\"1\" max=\"19\" id=\"kleistad_programma$oven\"></td>
+                        <td colspan=\"2\"><input type=\"number\" min=\"1\" max=\"19\" id=\"kleistad_programma\"></td>
                     </tr>
                     <tr>
                         <td><label>Tijdstip stoken</label></td>
-                        <td colspan=\"2\"><select id=\"kleistad_opmerking$oven\">
+                        <td colspan=\"2\"><select id=\"kleistad_opmerking\">
                                 <option value=\"voor 13:00 uur\" >voor 13:00 uur</option>
                                 <option value=\"tussen 13:00 en 16:00 uur\" >tussen 13:00 en 16:00 uur</option>
                                 <option value=\"na 16:00 uur\" >na 16:00 uur</option>
@@ -944,41 +952,42 @@ class Kleistad {
                     </tr>
                     <tr>
                         <td><label>Stoker</label></td>
-                        <td><span id=\"kleistad_stoker$oven\">$huidige_gebruiker->display_name</span> <input type=\"hidden\" id=\"kleistad_1e_stoker$oven\" name=\"kleistad_stoker_id$oven\" value=\"$huidige_gebruiker->ID\"/></td>
-                        <td><input type=\"number\" name=\"kleistad_stoker_perc$oven\" readonly /> %</td>
+                        <td><span id=\"kleistad_stoker\">$huidige_gebruiker->display_name</span> <input type=\"hidden\" id=\"kleistad_1e_stoker\" name=\"kleistad_stoker_id\" value=\"$huidige_gebruiker->ID\"/></td>
+                        <td><input type=\"number\" name=\"kleistad_stoker_perc\" readonly /> %</td>
                     </tr>";
-      for ($i = 2; $i <= 5; $i++) {
-        $html .= "<tr>
-                        <td><label>Stoker</label></td>
-                        <td><select name=\"kleistad_stoker_id$oven\" class=\"kleistad_verdeel\" data-oven=\"$oven\" >
-                        <option value=\"0\" >&nbsp;</option>";
-        foreach ($gebruikers as $gebruiker) {
-          if (user_can($gebruiker->id, self::RESERVEER) AND ($gebruiker->id <> $huidige_gebruiker->ID) || $this->override()) {
-            $html .= "<option value=\"{$gebruiker->id}\">{$gebruiker->display_name}</option>";
+        for ($i = 2; $i <= 5; $i++) {
+          $html .= "<tr>
+                          <td><label>Stoker</label></td>
+                          <td><select name=\"kleistad_stoker_id\" class=\"kleistad_verdeel\" >
+                          <option value=\"0\" >&nbsp;</option>";
+          foreach ($gebruikers as $gebruiker) {
+            if (user_can($gebruiker->id, self::RESERVEER) AND ($gebruiker->id <> $huidige_gebruiker->ID) || $this->override()) {
+              $html .= "<option value=\"{$gebruiker->id}\">{$gebruiker->display_name}</option>";
+            }
           }
+          $html .= "</select></td>
+                      <td><input type=\"number\" class=\"kleistad_verdeel\" name=\"kleistad_stoker_perc\" min=\"0\" max=\"100\" > %</td>
+                  </tr>";
         }
-        $html .= "</select></td>
-                    <td><input type=\"number\" data-oven=\"$oven\" class=\"kleistad_verdeel\" name=\"kleistad_stoker_perc{$oven}\" min=\"0\" max=\"100\" > %</td>
-                </tr>";
+        $html .= "</tbody>
+                  <tfoot>
+                      <tr>
+                          <th colspan=\"3\">
+                          <input type =\"hidden\" id=\"kleistad_dag\">
+                          <input type =\"hidden\" id=\"kleistad_maand\">
+                          <input type =\"hidden\" id=\"kleistad_jaar\">
+                          <span id=\"kleistad_tekst\"></span></th>
+                      </tr>
+                      <tr>
+                          <th><button type=\"button\" id=\"kleistad_muteer\" class=\"kleistad_muteer\" >Wijzig</button></th>
+                          <th><button type=\"button\" id=\"kleistad_verwijder\" class=\"kleistad_verwijder\" >Verwijder</button></th>
+                          <th><button type=\"button\" id=\"kleistad_sluit\" class=\"kleistad_sluit\" >Sluit</button></th>
+                      </tr>
+                  </tfoot>
+              </table>
+              </form>
+          </div>";
       }
-      $html .= "</tbody>
-                <tfoot>
-                    <tr>
-                        <th colspan=\"3\">
-                        <input type =\"hidden\" id=\"kleistad_dag$oven\">
-                        <input type =\"hidden\" id=\"kleistad_maand$oven\">
-                        <input type =\"hidden\" id=\"kleistad_jaar$oven\">
-                        <span id=\"kleistad_tekst$oven\"></span></th>
-                    </tr>
-                    <tr>
-                        <th><button type=\"button\" id=\"kleistad_muteer$oven\" class=\"kleistad_muteer\" data-oven=\"$oven\" >Wijzig</button></th>
-                        <th><button type=\"button\" id=\"kleistad_verwijder$oven\" class=\"kleistad_verwijder\" data-oven=\"$oven\" >Verwijder</button></th>
-                        <th><button type=\"button\" id=\"kleistad_sluit$oven\" class=\"kleistad_sluit\" data-oven=\"$oven\" >Sluit</button></th>
-                    </tr>
-                </tfoot>
-            </table>
-            </form>
-        </div>";
       return $html;
     } else {
       return "<p>de shortcode bevat geen oven nummer tussen 1 en 999 !</p>";
@@ -1206,8 +1215,8 @@ class Kleistad {
             <td colspan="2" ><input type="text" name="plaats" id="kleistad_plaats" required maxlength="50" placeholder="MijnWoonplaats" value="' . $input['plaats'] . '" /></td>
           </tr>';
     }
-    $html .= '<tr title="Wat is je ervaring met klei? Je kunt hier ook andere opmerkingen achterlaten die van belang zijn voor de cursus indeling" ><td><label for="kleistad_opmerking">Opmerking</label></td>
-              <td colspan="3" ><textarea name="opmerking" id="kleistad_opmerking" rows="5" cols="50">' . $input['opmerking'] . '</textarea></td></tr>
+    $html .= '<tr title="Wat is je ervaring met klei? Je kunt hier ook andere opmerkingen achterlaten die van belang zijn voor de cursus indeling" ><td><label for="kleistad_cursist_opmerking_veld">Opmerking</label></td>
+              <td colspan="3" ><textarea name="opmerking" id="kleistad_cursist_opmerking_veld" rows="5" cols="50">' . $input['opmerking'] . '</textarea></td></tr>
       </table>
         <button type="submit" name="kleistad_cursus_inschrijving" id="kleistad_cursus_inschrijving" >Verzenden</button>
         </form>';
@@ -1247,10 +1256,6 @@ class Kleistad {
 
     $gebruiker = wp_get_current_user();
     if ($gebruiker->ID != 0) {
-      if (!is_null(filter_input(INPUT_POST, 'kleistad_wijzig_registratie'))) {
-        $resultaat = $this->registreer_gebruiker($gebruiker->ID);
-        $html .= (is_wp_error($resultaat)) ? $this->toon_fout($resultaat) : $this->toon_succes(false);
-      }
       $contactinfo = get_user_meta($gebruiker->ID, self::CONTACTINFO, true);
       if (!is_array($contactinfo)) {
         $contactinfo = [ 'straat' => '', 'huisnr' => '', 'pcode' => '', 'plaats' => '', 'telnr' => ''];
@@ -1285,6 +1290,10 @@ class Kleistad {
         </table>
         <button type="submit" name="kleistad_wijzig_registratie" id="kleistad_wijzig_registratie" >Opslaan</button>
         </form>';
+      if (!is_null(filter_input(INPUT_POST, 'kleistad_wijzig_registratie'))) {
+        $resultaat = $this->registreer_gebruiker($gebruiker->ID);
+        $html .= (is_wp_error($resultaat)) ? $this->toon_fout($resultaat) : $this->toon_succes(false);
+      }
     }
     return $html;
   }
@@ -1485,7 +1494,7 @@ class Kleistad {
         }
       }
       $style = $cursus->vol ? 'style="background-color:lightblue"' : ($cursus->vervallen ? 'style="background-color:lightgray"' : '');
-      $html .= '<tr ' . $style . 'class="kleistad_cursus_info"' . 
+      $html .= '<tr ' . $style . ' class="kleistad_cursus_info"' . 
             ' data-cursus=\'' . json_encode($cursus) . '\' data-wachtlijst= \'' . json_encode($wachtlijst) . '\' data-ingedeeld= \'' . json_encode($ingedeeld) . '\' >
               <td>C' . $cursus->id . '</td><td>' . $cursus->naam . '</td>
               <td>' . $cursus->docent . '</td>
@@ -1836,7 +1845,7 @@ class Kleistad {
    */
   public function callback_show_reservering(WP_REST_Request $request) {
     global $wpdb;
-    $oven = intval($request->get_param('oven_id'));
+    $oven_id = intval($request->get_param('oven_id'));
     $maand = intval($request->get_param('maand'));
     $volgende_maand = $maand < 12 ? $maand + 1 : 1;
     $vorige_maand = $maand > 1 ? $maand - 1 : 12;
@@ -1847,9 +1856,9 @@ class Kleistad {
     $html = "
             <thead>
                 <tr>
-                    <th><button type=\"button\" class=\"kleistad_periode\" data-oven=\"$oven\" data-maand=\"$vorige_maand\" data-jaar=\"$vorige_maand_jaar\" >eerder</button></th>
+                    <th><button type=\"button\" class=\"kleistad_periode\" data-oven_id=\"$oven_id\" data-maand=\"$vorige_maand\" data-jaar=\"$vorige_maand_jaar\" >eerder</button></th>
                     <th colspan=\"3\"><strong>" . $maandnaam[$maand] . "-$jaar</strong></th>
-                    <th data-align=\"right\"><button type=\"button\" class=\"kleistad_periode\" data-oven=\"$oven\" data-maand=\"$volgende_maand\" data-jaar=\"$volgende_maand_jaar\" >later</button></th>
+                    <th style=\"text-align:right\"><button type=\"button\" class=\"kleistad_periode\" data-oven_id=\"$oven_id\" data-maand=\"$volgende_maand\" data-jaar=\"$volgende_maand_jaar\" >later</button></th>
                 </tr>
                 <tr>
                     <th>Dag</th>
@@ -1861,7 +1870,7 @@ class Kleistad {
             </thead>
             <tbody>";
 
-    $reserveringen = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}kleistad_reserveringen WHERE maand='$maand' AND jaar='$jaar' AND oven_id='$oven'");
+    $reserveringen = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}kleistad_reserveringen WHERE maand='$maand' AND jaar='$jaar' AND oven_id='$oven_id'");
 
     $huidige_gebruiker_id = get_current_user_id();
 
@@ -1875,7 +1884,7 @@ class Kleistad {
         case 1:
         case 3:
         case 5:  // alleen maandag, woensdag, vrijdag
-          $kleur = 'lightblue';
+          $kleur = 'white';
           $soortstook = '';
           $temperatuur = '';
           $programma = '';
@@ -1902,12 +1911,11 @@ class Kleistad {
               $verwerkt = ($reservering->verwerkt == 1);
               $gereserveerd = true;
               if ($reservering->gebruiker_id == $huidige_gebruiker_id) {
-                $kleur = !$datum_verstreken ? 'green' : $kleur;
+                $kleur = !$datum_verstreken ? 'lightgreen' : $kleur;
                 $wijzigbaar = !$verwerkt || is_super_admin();
-                $verwijderbaar = $this->override() ?
-                        !$verwerkt : !$datum_verstreken;
+                $verwijderbaar = $this->override() ? !$verwerkt : !$datum_verstreken;
               } else {
-                $kleur = !$datum_verstreken ? 'red' : $kleur;
+                $kleur = !$datum_verstreken ? 'pink' : $kleur;
                 // als de huidige gebruiker geen bevoegdheid heeft, dan geen actie
                 $wijzigbaar = (!$verwerkt && $this->override()) || is_super_admin();
                 $verwijderbaar = !$verwerkt && $this->override();
@@ -1916,11 +1924,10 @@ class Kleistad {
               break; // exit de foreach loop
             }
           }
-          $html .= "
-                <tr  style=\"background-color: $kleur\">"; // deze inlijn style is noodzakelijk omdat de kleur vanuit de backend bepaald wordt
+          $html .= "<tr style=\"background-color: $kleur\">";
           if ($wijzigbaar) {
             $form_data = [
-                'oven' => $oven,
+                'oven_id' => $oven_id,
                 'dag' => $dagteller,
                 'maand' => $maand,
                 'jaar' => $jaar,
@@ -1933,16 +1940,11 @@ class Kleistad {
                 'opmerking' => $opmerking,
                 'verwijderbaar' => $verwijderbaar,
                 'gereserveerd' => $gereserveerd,];
-            $html .= "
-                    <th><a class=\"kleistad_box\"  href=\"#\" rel=\"bookmark\"
-                        data-form='" . json_encode($form_data) . "'
-                        id=\"kleistad_$dagteller\">$dagteller $dagnamen[$weekdag] </a></th>";
+            $html .= "<td><a class=\"kleistad_box\" data-form='" . json_encode($form_data) . "' >$dagteller $dagnamen[$weekdag]</a></td>";
           } else {
-            $html .= "
-                    <th>$dagteller $dagnamen[$weekdag]</th>";
+            $html .= "<td>$dagteller $dagnamen[$weekdag]</td>";
           }
-          $html .= "
-                    <td>$wie</td>
+          $html .= "<td>$wie</td>
                     <td>$soortstook</td>
                     <td>$temperatuur</td>
                     <td>$opmerking</td>
@@ -1956,12 +1958,12 @@ class Kleistad {
             </tbody>
             <tfoot>
                 <tr>
-                    <th><button type=\"button\" class=\"kleistad_periode\" data-oven=\"$oven\" data-maand=\"$vorige_maand\" data-jaar=\"$vorige_maand_jaar\" >eerder</button></th>
+                    <th><button type=\"button\" class=\"kleistad_periode\" data-oven_id=\"$oven_id\" data-maand=\"$vorige_maand\" data-jaar=\"$vorige_maand_jaar\" >eerder</button></th>
                     <th colspan=\"3\"><strong>" . $maandnaam[$maand] . "-$jaar</strong></th>
-                    <th data-align=\"right\"><button type=\"button\" class=\"kleistad_periode\" data-oven=\"$oven\" data-maand=\"$volgende_maand\" data-jaar=\"$volgende_maand_jaar\" >later</button></th>
+                    <th style=\"text-align:right\"><button type=\"button\" class=\"kleistad_periode\" data-oven_id=\"$oven_id\" data-maand=\"$volgende_maand\" data-jaar=\"$volgende_maand_jaar\" >later</button></th>
                 </tr>
             </tfoot>";
-    return new WP_REST_response(['html' => $html, 'id' => $oven]);
+    return new WP_REST_response(['html' => $html, 'id' => $oven_id]);
   }
 
   /**
@@ -1972,6 +1974,7 @@ class Kleistad {
    */
   public function callback_muteren(WP_REST_Request $request) {
     global $wpdb;
+//    error_log(print_r($request,true));
     $gebruiker_id = intval($request->get_param('gebruiker_id'));
     $oven = intval($request->get_param('oven_id'));
     $dag = intval($request->get_param('dag'));
