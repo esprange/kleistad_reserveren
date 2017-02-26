@@ -1813,6 +1813,7 @@ class Kleistad {
             WHERE RE.oven_id = OV.id AND gemeld = '0' AND verwerkt = '0' AND str_to_date(concat(jaar,'-',maand,'-',dag),'%Y-%m-%d') < '$vandaag'");
     foreach ($notificaties as $notificatie) {
       // send reminder email
+      $datum_gebruik = strftime('%d-%m-%Y', mktime(0, 0, 0, $notificatie->maand, $notificatie->dag, $notificatie->jaar));
       $datum_verwerking = strftime('%d-%m-%Y', mktime(0, 0, 0, $notificatie->maand, $notificatie->dag + self::TERMIJN, $notificatie->jaar));
       $datum_deadline = strftime('%d-%m-%Y', mktime(0, 0, 0, $notificatie->maand, $notificatie->dag + self::TERMIJN - 1, $notificatie->jaar));
       $gebruiker = get_userdata($notificatie->gebruiker_id);
@@ -1824,7 +1825,7 @@ class Kleistad {
       $wpdb->update("{$wpdb->prefix}kleistad_reserveringen", ['gemeld' => 1], ['id' => $notificatie->id], ['%d'], ['%d']);
 
       $to = "$gebruiker->first_name $gebruiker->last_name <$gebruiker->user_email>";
-      $this->compose_email($to, "Kleistad oven gebruik op $datum", 'kleistad_email_stookmelding', [
+      $this->compose_email($to, "Kleistad oven gebruik op $datum_gebruik", 'kleistad_email_stookmelding', [
         'voornaam' => $gebruiker->first_name,
         'achternaam' => $gebruiker->last_name,
         'bedrag' => $kosten,
