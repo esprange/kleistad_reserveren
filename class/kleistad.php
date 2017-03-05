@@ -1660,7 +1660,7 @@ class Kleistad {
         $bijlage = $upload_dir['basedir'] . '/registratiebestand_' . date('Y_m_d') . '.csv';
         $f = fopen($bijlage, 'w');
 
-        $fields = ['Achternaam', 'Voornaam', 'Email', 'Straat', 'Huisnr', 'Postcode', 'Plaats', 'Telefoon', 'Cursus', 'Cursus code', 'Inschrijf status', 'Technieken', 'Opmerking'];
+        $fields = ['Achternaam', 'Voornaam', 'Email', 'Straat', 'Huisnr', 'Postcode', 'Plaats', 'Telefoon', 'Cursus', 'Cursus code', 'Inschrijf datum', 'Inschrijf status', 'Technieken', 'Opmerking'];
         fputcsv($f, $fields, ';', '"');
 
         $registraties = get_users(['orderby' => ['last_name']]); 
@@ -1685,6 +1685,7 @@ class Kleistad {
               $values_2 = $values;
               array_push ($values_2, $cursussen[$cursus_id]->naam,
                   $inschrijving['code'],
+                  $inschrijving['datum'],
                   $inschrijving['ingedeeld'] ? 'ingedeeld' : 'wachtlijst',
                   is_array($inschrijving['technieken']) ? implode(' ', $inschrijving['technieken']) : '',
                   $inschrijving['opmerking']
