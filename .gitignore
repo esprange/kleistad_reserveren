@@ -70,3 +70,4 @@ $RECYCLE.BIN/
 
 # Subversion
 .svn
+/vendor/
