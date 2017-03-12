@@ -1484,7 +1484,9 @@ class Kleistad {
           $element = [
                 'naam' => $inschrijver->display_name, 
                 'opmerking' => $inschrijvingen[$cursus->id]['opmerking'], 
-                'technieken' => json_encode($inschrijvingen[$cursus->id]['technieken']) 
+                'technieken' => $inschrijvingen[$cursus->id]['technieken'],
+                'ingedeeld' => $inschrijvingen[$cursus->id]['ingedeeld'],
+                'id' => $inschrijver->ID,
               ];
           if ($inschrijvingen[$cursus->id]['ingedeeld']) {
             $ingedeeld[$inschrijver->ID] = $element;
@@ -1651,20 +1653,28 @@ class Kleistad {
     $html = '';
     
     global $wpdb;
-    $cursussen = $wpdb->get_results("SELECT id, naam FROM {$wpdb->prefix}kleistad_cursussen", OBJECT_K);
+    $cursussen = $wpdb->get_results("SELECT id, naam FROM {$wpdb->prefix}kleistad_cursussen ORDER BY id", OBJECT_K);
 
     if (!is_null(filter_input(INPUT_POST, 'kleistad_registratiebestand_verzenden'))) {
       if (wp_verify_nonce(filter_input(INPUT_POST, '_wpnonce'), 'kleistad_registratie_bestand')) {
 
+        $selectie = filter_input(INPUT_POST, 'selectie', FILTER_SANITIZE_STRING);
+                
         $upload_dir = wp_upload_dir();
         $bijlage = $upload_dir['basedir'] . '/registratiebestand_' . date('Y_m_d') . '.csv';
         $f = fopen($bijlage, 'w');
 
-        $fields = ['Achternaam', 'Voornaam', 'Email', 'Straat', 'Huisnr', 'Postcode', 'Plaats', 'Telefoon', 'Cursus', 'Cursus code', 'Inschrijf datum', 'Inschrijf status', 'Technieken', 'Opmerking'];
+        $fields = ['Achternaam', 'Voornaam', 'Email', 'Straat', 'Huisnr', 'Postcode', 'Plaats', 'Telefoon', 'Lid', 'Cursus', 'Cursus code', 'Inschrijf datum', 'Inschrijf status', 'Technieken', 'Opmerking'];
         fputcsv($f, $fields, ';', '"');
 
         $registraties = get_users(['orderby' => ['last_name']]); 
+        
         foreach ($registraties as $registratie) {
+          $is_lid = (!empty($registratie->roles) or (is_array($registratie->roles) and (count($registratie->roles) > 0 ) ) );
+          if ( $selectie == '0' AND !$is_lid) {
+            continue; // als er alleen leden geselecteerd zijn, de niet-leden overslaan
+          } 
+          
           $values = [$registratie->last_name, 
               $registratie->first_name, 
               $registratie->user_email];
@@ -1679,9 +1689,14 @@ class Kleistad {
           } else {
             array_push ($values, '', '', '', '', '');
           }
+          array_push ($values, $is_lid ? 'Ja' : 'Nee');
+          
           $inschrijvingen = get_user_meta($registratie->ID, self::INSCHRIJVINGEN, true);
           if (is_array($inschrijvingen)) {
             foreach ($inschrijvingen as $cursus_id => $inschrijving) {
+              if (intval($selectie) > 0 AND intval($selectie) != $cursus_id) {
+                continue; // als er een cursus selectie is, alleen die cursus opnemen 
+              } 
               $values_2 = $values;
               array_push ($values_2, $cursussen[$cursus_id]->naam,
                   $inschrijving['code'],
@@ -1693,6 +1708,9 @@ class Kleistad {
               fputcsv($f, $values_2, ';', '"');
             }
           } else {
+            if (intval($selectie) > 0) {
+              continue; // als er een cursus selectie is, dan leden zonder inschrijvingen overslaan
+            }
             fputcsv($f, $values, ';', '"');
           }
         }
@@ -1700,7 +1718,13 @@ class Kleistad {
 
         $gebruiker = wp_get_current_user();
         $to = "$gebruiker->user_firstname $gebruiker->user_lastname <$gebruiker->user_email>";
-        $message = "<p>Bijgaand het bestand in .CSV formaat met alle registrataties.</p>";
+        if ($selectie == '*') { 
+          $message = "<p>Bijgaand het bestand in .CSV formaat met alle registraties.</p>";
+        } elseif (intval($selectie) > 0) {
+          $message = "<p>Bijgaand het bestand in .CSV formaat met alle registraties voor cursus C$selectie.</p>";
+        } else {
+          $message = "<p>Bijgaand het bestand in .CSV formaat met alle registraties van leden.</p>";
+        }
         $attachments = [$bijlage];
         if ($this->compose_email($to, "Kleistad registratiebestand", $message, [], $attachments)) {
           $html .= '<div class="kleistad_succes"><p>Het bestand is per email verzonden.</p></div>';
@@ -1710,10 +1734,17 @@ class Kleistad {
       }
     }
 
-    $html .= '<div id="kleistad_deelnemer_info"><table class="kleistad_tabel" id="kleistad_deelnemer_tabel" ></table></div>
+    $html .= '<div id="kleistad_deelnemer_info">
+            <table class="kleistad_tabel" id="kleistad_deelnemer_tabel" ></table></div>
             <form action="#" method="post" >' . $this->nonce_field('kleistad_registratie_bestand') .
-            '<table class="kleistad_tabel" >
-            <tr><th>Achternaam</th><th>Voornaam</th><th>Straat</th><th>Huisnr</th><th>Postcode</th><th>Plaats</th><th>Email</th><th>Telnr</th></tr>';
+            '<p><label for="kleistad_deelnemer_selectie">Selectie</label><select id="kleistad_deelnemer_selectie" name="selectie" ><option value="*" ></option><option value="0" >Leden</option>';
+    foreach ($cursussen as $cursus) {
+      $html .= '<option value="' . $cursus->id . '">C' . $cursus->id . ' ' . $cursus->naam . '</option>';
+    }
+    
+    $html .= '</select></p>
+            <table class="kleistad_tabel" id="kleistad_deelnemer_lijst">
+            <thead><tr><th>Achternaam</th><th>Voornaam</th><th>Straat</th><th>Huisnr</th><th>Postcode</th><th>Plaats</th><th>Email</th><th>Telnr</th></tr></thead><tbody>';
     $registraties = get_users(['orderby' => ['last_name']]);
     foreach ($registraties as $registratie) {
       $html .= '<tr class="kleistad_deelnemer_info" ';
@@ -1722,6 +1753,9 @@ class Kleistad {
       if (!is_array($contactinfo)) {
         $contactinfo = ['straat' => '', 'huisnr' => '', 'pcode' => '', 'plaats' => '', 'telnr' => ''];
       }
+
+      $deelnemer = ['is_lid' => (!empty($registratie->roles) or (is_array($registratie->roles) and (count($registratie->roles) > 0 ) ) ), 
+                    'naam' => $registratie->display_name, ];
       
       $inschrijvingen = get_user_meta($registratie->ID, self::INSCHRIJVINGEN, true);
       if (is_array($inschrijvingen)) {
@@ -1730,7 +1764,7 @@ class Kleistad {
         }
         $html .= 'data-inschrijvingen=\'' . json_encode($inschrijvingen). '\'';
       }
-      $html .= ' data-deelnemer="' . $registratie->display_name . '" ><td>' . $registratie->last_name . '</td><td>' .
+      $html .= ' data-deelnemer=\'' . json_encode($deelnemer) . '\' ><td>' . $registratie->last_name . '</td><td>' .
               $registratie->first_name . '</td><td>' .
               $contactinfo['straat'] . '</td><td>' .
               $contactinfo['huisnr'] . '</td><td>' .
@@ -1739,7 +1773,7 @@ class Kleistad {
               $registratie->user_email . '</td><td>' .
               $contactinfo['telnr'] . '</td></tr>';
     }
-    $html .= '</table>
+    $html .= '</tbody></table>
           <button type="submit" name="kleistad_registratiebestand_verzenden" >Bestand aanmaken</button>
         </form>';
     return $html;

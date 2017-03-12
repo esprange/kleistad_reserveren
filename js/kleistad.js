@@ -55,12 +55,51 @@
             $(this).css('cursor', 'pointer');
             $(this).toggleClass('kleistad_hover');
         });
+        
+        $('#kleistad_deelnemer_selectie').click(function() {
+            var selectie = $(this).val();
+            switch (selectie) {
+                case '0':
+                    $('#kleistad_deelnemer_lijst > tbody > tr').each(function () {
+                        var deelnemer = $(this).data('deelnemer');
+                        if (deelnemer['is_lid']) {
+                            $(this).show();
+                        } else {
+                            $(this).hide();
+                        }
+                    });
+                    break;
+                    
+                case '*':
+                    $('#kleistad_deelnemer_lijst > tbody > tr').each(function () {
+                        $(this).show();
+                    });
+                    break;
+                    
+                default:
+                    $('#kleistad_deelnemer_lijst > tbody > tr').each(function () {
+                       var inschrijvingen = $(this).data('inschrijvingen');
+                       var tonen = false;
+                       if (typeof inschrijvingen !== 'undefined') {
+                           $.each(inschrijvingen, function (key, value) {
+                               tonen = (key == selectie) || tonen;
+                           });
+                       }
+                       if (tonen) {
+                           $(this).show();
+                       } else {
+                           $(this).hide();
+                       }
+                    });
+            }
+        });
+        
         $('.kleistad_deelnemer_info').click(function () {
             $('#kleistad_deelnemer_info').dialog('open');
             var inschrijvingen = $(this).data('inschrijvingen');
             var deelnemer = $(this).data('deelnemer');
             $('#kleistad_deelnemer_tabel').empty();
-            $('#kleistad_deelnemer_tabel').append('<tr><th colspan="6">' + deelnemer + '</th></tr>');
+            $('#kleistad_deelnemer_tabel').append('<tr><th colspan="6">' + deelnemer['naam'] + '</th></tr>');
             var header = '<tr><th>Cursus</th><th>Code</th><th>Ingedeeld</th><th>Inschrijfgeld<br/>voldaan</th><th>Cursusgeld<br/>voldaan</th><th>Technieken</th></tr>';
             if (typeof inschrijvingen !== 'undefined') {
                 $.each(inschrijvingen, function (key, value) {
@@ -81,11 +120,7 @@
                 $('#kleistad_deelnemer_tabel').append('<tr><td colspan="6">Geen cursus inschrijvingen aanwezig</td></tr>');
             }
         });
-//        $(function () {
-//            $("#dialog").dialog();
-//            $("#ui-dialog-title-dialog").hide();
-//            $(".ui-dialog-titlebar").removeClass('ui-widget-header');
-//        });
+
         $('.kleistad_cursus_info').hover(function () {
             $(this).css('cursor', 'pointer');
             $(this).toggleClass('kleistad_hover');
@@ -117,11 +152,14 @@
             $('#kleistad_vervallen').prop("checked", cursus.vervallen > 0);
             $('#kleistad_wachtlijst').children().remove().end();
             $.each(wachtlijst, function (key, value) {
-                $('#kleistad_wachtlijst').append($('<option value="' + key + '" data-ingedeeld="0" data-opmerking="' + value['opmerking'] + '" data-technieken=\'' + value['technieken'] + '\' >' + value['naam'] + '</option>'));
-            });
+                $('#kleistad_wachtlijst').append( new Option(value['naam'], JSON.stringify(value), true, true ));
+              });
             $('#kleistad_indeling').children().remove().end();
             $.each(ingedeeld, function (key, value) {
-                $('#kleistad_indeling').append($('<option style="background-color:lightgreen;font-weight:bold;" value="' + key + '" data-ingedeeld="1" data-opmerking="' + value['opmerking'] + '" data-technieken=\'' + value['technieken'] + '\' >' + value['naam'] + '</option>'));
+                var option = new Option(value['naam'], JSON.stringify(value), true, true );
+                option.style.backgroundColor = 'lightgreen';
+                option.style.fontWeight =  700; // bold
+                $('#kleistad_indeling').append(option);
             });
         });
 
@@ -158,7 +196,7 @@
             $('#kleistad_cursus_handvormen').css('visibility', 'hidden');
             $('#kleistad_cursus_technieken').css('visibility', 'hidden');
             $.each(technieken, function (key, value) {
-                $('#kleistad_cursus_' + value.toLowerCase()).css('visibility', 'visible').find('input').prop('checked', false)
+                $('#kleistad_cursus_' + value.toLowerCase()).css('visibility', 'visible').find('input').prop('checked', false);
                 $('#kleistad_cursus_technieken').css('visibility', 'visible');
             });
         });
@@ -166,8 +204,9 @@
         $('#kleistad_bewaar_cursus_indeling').click(function () {
             var options = $('#kleistad_indeling option');
             var cursisten = $.map(options, function (option) {
-                return Number(option.value);
-            });
+                var element = JSON.parse(option.value);
+                return Number(element['id']);
+              });
             $('#kleistad_indeling_lijst').val(JSON.stringify(cursisten));
         });
 
@@ -175,7 +214,8 @@
             var ingedeeld = $('#kleistad_indeling option:selected');
             var wachtend = $('#kleistad_wachtlijst option:selected');
             if (ingedeeld.length) {
-                if (ingedeeld.data('ingedeeld') === 0) {
+                var element = JSON.parse(ingedeeld.val());
+                if (element['ingedeeld'] === 0) {
                     return !ingedeeld.remove().appendTo('#kleistad_wachtlijst');
                 }
             }
@@ -191,7 +231,7 @@
             $('#kleistad_cursist_opmerking').empty();
             var cursist = $('option:selected', this);
             if (cursist.length) {
-                kleistad_toon_cursist(cursist)
+                kleistad_toon_cursist(cursist);
             }
         });
 
@@ -234,11 +274,6 @@
             return false;
         });
 
-//        $('body').on('hover', '.kleistad_box', function () {
-//            $(this).css('cursor', 'pointer');
-//            $(this).toggleClass('kleistad_hover');
-//        });
-
         $("body").on("click", '.kleistad_muteer', function () {
             kleistad_muteer(1);
         });
@@ -253,10 +288,11 @@
     });
 
     function kleistad_toon_cursist(cursist) {
-        var opmerking = cursist.data('opmerking');
-        var technieken = cursist.data('technieken');
-
-        if (technieken.length > 0) {
+        var element = JSON.parse(cursist.val());
+        var opmerking = element['opmerking'];
+        var technieken = element['technieken'];
+        
+        if (technieken !== null) {
             var techniektekst = '<p>Gekozen technieken : ';
             $.each(technieken, function (key, value) {
                 techniektekst += value + ' ';
