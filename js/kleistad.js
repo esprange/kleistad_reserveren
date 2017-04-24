@@ -398,7 +398,9 @@
         var stoker_ids = $('[name=kleistad_stoker_id]').toArray();
         var verdeling = {};
 
-        for (var i = 0; i < stoker_ids.length; i++) {
+        // forceer dat de 1e stoker = de gebruiker...
+        verdeling[0] = {id: +$('#kleistad_gebruiker_id').val(), perc: +stoker_percs[0].value};
+        for (var i = 1; i < stoker_ids.length; i++) {
             verdeling[i] = {id: +stoker_ids[i].value, perc: +stoker_percs[i].value};
         }
 
