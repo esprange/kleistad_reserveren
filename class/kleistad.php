@@ -351,6 +351,10 @@ class Kleistad {
       $gebruiker_id = filter_input(INPUT_POST, 'kleistad_saldo_gebruiker_id', FILTER_SANITIZE_NUMBER_INT);
       $saldo = str_replace(",", ".", filter_input(INPUT_POST, 'kleistad_saldo_wijzigen', FILTER_SANITIZE_STRING));
       update_user_meta($gebruiker_id, 'stooksaldo', $saldo);
+      $gebruiker = get_userdata($gebruiker_id);
+      $beheerder = wp_get_current_user();
+      $this->log_saldo("correctie saldo $gebruiker->display_name naar $saldo, door $beheerder->display_name.");
+
     }
     $ovens = $wpdb->get_results(
             "SELECT * FROM {$wpdb->prefix}kleistad_ovens ORDER BY id");
